@@ -1,8 +1,7 @@
 # 🚀 HDRVisualizer
 
-**HDRVisualizer** is a high-performance, interactive High Dynamic Range (HDR) image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**.
+**HDRVisualizer** is an interactive High Dynamic Range (HDR) image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**.
 
-This viewer is highly optimized using a *separated pipeline* architecture: the tonemapping algorithm (Reinhard, Drago, Mantiuk) is applied to the full HDR image only once, while dynamic cropping and zooming operate directly on the 8-bit LDR space. This eliminates unnecessary exposure recalculations, ensuring an ultra-smooth performance (*prime* 😎) with no flickering or drastic color shifts when zooming.
 
 ---
 
@@ -29,16 +28,14 @@ This viewer is highly optimized using a *separated pipeline* architecture: the t
 
 ---
 
-## 🛠️ Supported Tonemapping Algorithms
+## 🎛️ Tonemapping Parameters
 
 The application natively implements three of the most representative tone mapping operators used in the computational photography industry:
 
-1. **Reinhard:** Ideal for intuitive, dynamic adjustments based on global luminance scale and chromatic adaptation.
-   * *Parameters:* Gamma, Intensity, Light Adapt, Color Adapt.
-2. **Drago:** Based on adaptive logarithmic compression of luminance, excellent for preserving fine details in extreme highlights.
-   * *Parameters:* Gamma, Saturation, Bias.
-3. **Mantiuk:** Based on human perceptual contrast modeling, ideal for maximizing visual impact in high-contrast scenes.
-   * *Parameters:* Gamma, Scale, Saturation.
+* **Reinhard:** `Gamma`, `Intensity`, `Light Adapt`, `Color Adapt`
+* **Drago:** `Gamma`, `Saturation`, `Bias`
+* **Mantiuk:** `Gamma`, `Scale`, `Saturation`
+
 
 ---
 
@@ -49,7 +46,7 @@ Ensure you have the C++ compilers and development packages for the required grap
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake libopencv-dev libglfw3-dev libgl1-mesa-dev xorg-dev
+sudo apt install build-essential cmake libopencv-dev libopenexr-dev libglfw3-dev libgl1-mesa-dev xorg-dev
 ```
 
 Actually, the application is working in ubuntu. I'm not sure if it works in other OS.
@@ -57,3 +54,16 @@ Actually, the application is working in ubuntu. I'm not sure if it works in othe
 ## Related project
 
 HDRVisualizer is inspired by [vpv](https://github.com/kidanger/vpv), a popular Image viewer for Linux and MacOS.
+
+
+## To cite this software
+
+```
+@misc{hdrvisualizer2026,
+  author       = {arielz001},
+  title        = {HDRVisualizer: Interactive HDR Image Viewer},
+  year         = {2026},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  howpublished = {\url{[https://github.com/arielz001/HDRVisualizer](https://github.com/arielz001/HDRVisualizer)}}
+}```
