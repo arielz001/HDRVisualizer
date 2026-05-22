@@ -2,6 +2,9 @@
 #include "imgui.h"
 #include <opencv2/opencv.hpp>
 #include <functional>
+#include <GLFW/glfw3.h> 
+// Forward declaration of Colormap to avoid circular dependencies during compilation
+class Colormap;
 
 // Struct to hold the state of our zoom selection and current view
 struct ZoomState {
@@ -30,11 +33,19 @@ void DrawCustomCursor();
 void HandleKeyboardNavigation(int& current_idx, int total_images, const std::function<void(int)>& load_callback);
 
 // Shows the "Reset Zoom" button if the image is currently zoomed
-void DrawResetZoomButton(cv::Mat& current_img_raw, const cv::Mat& base_img_raw, ZoomState& zoom_state, bool& needs_update);
+void DrawResetZoomButton(GLFWwindow* window, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, 
+                         ZoomState& zoom_state, bool& needs_update);
 
-// Handles BBox right-click selection box and the "Zoom" button logic over the image
-void HandleZoomAndSelection(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& img_size, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, bool& needs_update);
+// Handles holding 'Z' and scrolling to zoom in/out relative to mouse cursor
+void HandleScrollZoom(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& size, cv::Mat& current_img_ldr, const cv::Mat& base_img_ldr, bool& needs_update);
 
+// Handles BBox right-click selection box and the "Zoom" / "Auto Range" button logic over the image
+void HandleZoomAndSelection(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& size, 
+                            cv::Mat& current_img_ldr, const cv::Mat& base_img_ldr, const cv::Mat& base_img_raw, 
+                            Colormap& colormap, bool& needs_tonemap, bool& needs_texture);
 
-// NEW: Handles holding 'Z' and scrolling to zoom in/out relative to mouse cursor
-void HandleScrollZoom(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& img_size, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, bool& needs_update);
+// mouse traslation 
+void HandleMousePanning(ZoomState& zoom_state,
+                            const ImVec2& size, cv::Mat& current_img_raw, 
+                            const cv::Mat& base_img_raw, bool& needs_update);
+                            

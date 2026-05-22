@@ -30,7 +30,11 @@ set(SOURCES
     main.cpp
     Utils.cpp
     Tonemapper.cpp
-    Controls.cpp
+    # Controls.cpp
+    MouseControls.cpp 
+    KeyboardControls.cpp
+    Colormap.cpp
+    Colorspace.cpp
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
