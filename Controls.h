@@ -35,9 +35,6 @@ void DrawResetZoomButton(cv::Mat& current_img_raw, const cv::Mat& base_img_raw, 
 // Handles BBox right-click selection box and the "Zoom" button logic over the image
 void HandleZoomAndSelection(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& img_size, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, bool& needs_update);
 
-// NEW: Handles holding 'Z' and scrolling to zoom in/out
-// void HandleScrollZoom(ZoomState& zoom_state, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, bool& needs_update);
-// ... (El resto de tu Controls.h queda igual) ...
 
 // NEW: Handles holding 'Z' and scrolling to zoom in/out relative to mouse cursor
 void HandleScrollZoom(ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& img_size, cv::Mat& current_img_raw, const cv::Mat& base_img_raw, bool& needs_update);
