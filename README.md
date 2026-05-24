@@ -1,17 +1,23 @@
-# 🚀 HDRVisualizer
+# 🚀 HPVis (High-Polarized & HDR Visualizer)
 
-**HDRVisualizer** is an interactive High Dynamic Range (HDR) image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**.
+**HPVis** is an interactive High Dynamic Range (HDR) and Polarized image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**. 
+
+The engine natively decodes raw polarization data alongside standard HDR formats, providing an optimized multi-panel monolithic grid layout for advanced computer vision analysis.
 
 ---
 
 ## ✨ Key Features
 
-* **🎨 Separated Global Tonemapping:** Exposure and tone mapping remain perfectly stable. Zooming or panning around doesn't alter the brightness or contrast of the viewed region.
-* **🎯 Infinite Scroll Zoom:** Advanced UV coordinate tracking that keeps the exact pixel under your cursor in focus while zooming, fixed against integer truncation traps.
+* **🎨 Separated Global Tonemapping:** Exposure and tone mapping remain perfectly stable. Zooming or panning around doesn't alter the brightness or contrast of the viewed region. The original raw data remains unaltered during inspection.
+* **📸 Native Polarization Decoding:** Automatically detects and unpacks raw polarization mosaic formats (`.raw`)
+* **🧩 Monolithic Multi-Panel Grid:** Splits and computes polarized mosaics into 4 standard polarization channels ($0^\circ, 45^\circ, 90^\circ, 135^\circ$), rendering a synchronized 6-panel workspace that includes real-time calculation of:
+  * **DoLP** (Degree of Linear Polarization) mapped via `COLORMAP_JET`.
+  * **AoLP** (Angle of Linear Polarization) mapped via `COLORMAP_HSV`.
+* **🎯 Scroll Zoom:** Advanced UV coordinate tracking that keeps the exact pixel under your cursor in focus while zooming, fixed against integer truncation traps. Works seamlessly across all sub-panels in unison.
 * **📦 Interactive BBox Selection:** Right-click and drag to create a selection box with a dedicated floating contextual menu to apply custom actions over that region.
 * **🔍 Auto-Range Dynamic Colormap:** Automatically re-centers and scales the colormap radius based on the exact localized minimum and maximum HDR values inside your selection.
 * **📁 Directory Navigation:** Load entire folders and seamlessly navigate through sequences of HDR images without leaving the application.
-* **👁️ Real-time Pixel Matrix Overlay:** Deep zooming automatically displays a readable sub-grid showing the precise channel values (RGB) adapting text contrast dynamically to the background luminance.
+* **👁️ Real-time Pixel Matrix Overlay:** Deep zooming automatically displays a readable sub-grid showing the **precise, unaltered raw float values (up to 4 decimal places)** instead of post-processed LDR values. Text contrast adapts dynamically to the background luminance.
 * **🖱️ Custom Precision Cursor:** Aesthetic replacement of the default system cursor with a reactive crosshair integrated directly into the viewport.
 
 ---
@@ -31,12 +37,12 @@
 
 | Shortcut | Action | Description |
 | :--- | :--- | :--- |
-| `A` | **Hard Reset Everything** ⚠️ | **Master Reset:** Restores the original full image crop, clears any active colormap range, switches back to Reinhard mode, and resets all tonemapping sliders to factory defaults. |
+| `A` | **Hard Reset Everything** ⚠️ | **Master Reset:** Restores the original full image crop, clears any active colormap range, switches back to Reinhard mode, resets polarized buffers, and sets all tonemapping sliders to factory defaults. |
 | `R` | **Reset Range** | Clears the localized AutoRange colormap and restores the full original dynamic range. |
-| `Z` | **Reset Zoom** | Reset zoom to the original image size.
+| `Z` | **Reset Zoom** | Resets zoom to the original image boundaries. |
 | `S` | **Cycle Color Spaces** | Instantly toggles and transitions the active color space rendering properties. |
-| `Q` | **Exit App** | Instantly closes the HDR Visualizer window safely. |
-| `←` / `→` | **File Navigation** | Switches to the previous or next HDR image available in the loaded directory sequence. |
+| `Q` | **Exit App** | Instantly closes the visualizer window safely. |
+| `←` / `→` | **File Navigation** | Switches to the previous or next image available in the loaded directory sequence. |
 
 ---
 
@@ -48,7 +54,7 @@ When you perform a **Right-Click selection**, a reactive box will display two fa
 * **AutoRange:** Analyzes the raw HDR matrix inside the bounding box, extracts the `min` / `max` values, and normalizes the visualization scale automatically.
 
 ### 🎚️ Tonemapping Operators
-The application natively implements three of the most representative tone mapping operators used in the computational photography industry:
+The application natively implements three of the most representative tone mapping operators used in the computational photography industry. Changing operators **only affects visualization**, leaving HUD pixel readings intact:
 * **Reinhard:** `Gamma`, `Intensity`, `Light Adapt`, `Color Adapt`
 * **Drago:** `Gamma`, `Saturation`, `Bias`
 * **Mantiuk:** `Gamma`, `Scale`, `Saturation`
@@ -58,11 +64,19 @@ The application natively implements three of the most representative tone mappin
 ## 🔧 Requirements & Installation
 
 ### 1. System Dependencies
-Ensure you have the C++ compilers and development packages for the required graphical libraries installed (example for Ubuntu/Debian-based distributions):
+The application is fully compatible and tested under **Ubuntu 22.04 LTS** and **macOS (M1/Silicon architecture)** natively. *(Windows compatibility is not officially tested)*.
+
+Ensure you have the C++ compilers and development packages for the required graphical libraries installed:
 
 ```bash
 sudo apt update
 sudo apt install build-essential cmake libopencv-dev libopenexr-dev libglfw3-dev libgl1-mesa-dev xorg-dev
+```
+
+In MacOS, you may need install the following dependencies:
+
+```bash
+brew install cmake opencv openexr glfw
 ```
 
 Actually, the application is working in ubuntu 22.04 and macos m1. I'm not sure if it works in windows.
