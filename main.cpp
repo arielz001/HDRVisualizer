@@ -314,6 +314,238 @@ void renderControlPanel(GLFWwindow* window)
 }
 
 
+// void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewport_id, cv::Mat& current_raw, cv::Mat& base_raw, cv::Mat& current_ldr, cv::Mat& base_ldr, GLuint texture_id)
+// {
+//     if (current_ldr.empty() || !texture_id) return;
+
+//     float ar = (float)current_ldr.cols / current_ldr.rows;
+//     ImVec2 view_size = size;
+//     if (size.x / size.y > ar) view_size.x = size.y * ar; else view_size.y = size.x / ar;
+
+//     ImVec2 avail = ImGui::GetContentRegionAvail();
+//     ImGui::SetCursorPos(ImVec2((avail.x - view_size.x) * 0.5f, (avail.y - view_size.y) * 0.5f));
+//     ImVec2 img_screen_pos = ImGui::GetCursorScreenPos();
+    
+//     ImGui::Image((void*)(intptr_t)texture_id, view_size);
+
+//     ImVec2 mouse_pos = ImGui::GetMousePos();
+//     bool mouse_is_over = (mouse_pos.x >= img_screen_pos.x && mouse_pos.x <= (img_screen_pos.x + view_size.x)) && 
+//                          (mouse_pos.y >= img_screen_pos.y && mouse_pos.y <= (img_screen_pos.y + view_size.y));
+
+//     bool over_buttons = ImGui::IsAnyItemHovered();
+
+//     // calculate floating buttons position
+//     bool mouse_is_over_floating_buttons = false;
+//     ImVec2 dynamic_btn_pos(0, 0);
+//     ImVec2 btn_box_size(145.0f, 25.0f); 
+
+//     if (g_sync.has_persistent_rect && g_sync.img_start_pixel.x >= 0.0f) {
+//         cv::Rect roi = ctx.zoom_state.current_roi;
+//         float norm_p1_x = (g_sync.img_start_pixel.x - roi.x) / (float)roi.width;
+//         float norm_p1_y = (g_sync.img_start_pixel.y - roi.y) / (float)roi.height;
+//         float norm_p2_x = (g_sync.img_end_pixel.x - roi.x) / (float)roi.width;
+//         float norm_p2_y = (g_sync.img_end_pixel.y - roi.y) / (float)roi.height;
+        
+//         ImVec2 p1(img_screen_pos.x + norm_p1_x * view_size.x, img_screen_pos.y + norm_p1_y * view_size.y);
+//         ImVec2 p2(img_screen_pos.x + norm_p2_x * view_size.x, img_screen_pos.y + norm_p2_y * view_size.y);
+        
+//         float rect_right = (p1.x > p2.x) ? p1.x : p2.x;
+//         float rect_bottom = (p1.y > p2.y) ? p1.y : p2.y;
+
+//         dynamic_btn_pos = ImVec2(rect_right - btn_box_size.x, rect_bottom + 4.0f); 
+//         if (dynamic_btn_pos.x < img_screen_pos.x) dynamic_btn_pos.x = img_screen_pos.x;
+//         if (dynamic_btn_pos.y > (img_screen_pos.y + view_size.y - btn_box_size.y)) dynamic_btn_pos.y = img_screen_pos.y + view_size.y - btn_box_size.y;
+
+//         if (mouse_pos.x >= dynamic_btn_pos.x && mouse_pos.x <= (dynamic_btn_pos.x + btn_box_size.x) &&
+//             mouse_pos.y >= dynamic_btn_pos.y && mouse_pos.y <= (dynamic_btn_pos.y + btn_box_size.y)) {
+//             mouse_is_over_floating_buttons = true;
+//         }
+//     }
+
+//     // reset selection
+//     if (mouse_is_over && !over_buttons && !mouse_is_over_floating_buttons) {
+//         g_sync.normalized_cursor_pos = ImVec2((mouse_pos.x - img_screen_pos.x) / view_size.x, (mouse_pos.y - img_screen_pos.y) / view_size.y);
+        
+//         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+//             g_sync.reset();
+//             for(auto& c : contexts) {
+//                 c.zoom_state.is_selecting = false;
+//                 c.needs_tonemap = true;
+//                 updateViewportImage(c);
+//             }
+//         }
+//     }
+
+//     // right click interactions
+//     if (mouse_is_over && !over_buttons && !mouse_is_over_floating_buttons && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+//         g_sync.is_dragging = true;
+//         g_sync.has_persistent_rect = false; 
+//         g_sync.active_context_idx = context_idx;
+//         g_sync.active_viewport_id = viewport_id;
+        
+//         for(auto& c : contexts) c.zoom_state.is_selecting = false;
+        
+//         float norm_x = (mouse_pos.x - img_screen_pos.x) / view_size.x;
+//         float norm_y = (mouse_pos.y - img_screen_pos.y) / view_size.y;
+        
+//         cv::Rect roi = ctx.zoom_state.current_roi;
+//         g_sync.img_start_pixel = cv::Point2f(roi.x + norm_x * roi.width, roi.y + norm_y * roi.height);
+//         g_sync.img_end_pixel = g_sync.img_start_pixel;
+
+//         for(auto& c : contexts) { c.needs_tonemap = true; updateViewportImage(c); }
+//     }
+
+//     // INTERACCIONES: ARRASTRE
+//     if (g_sync.is_dragging && g_sync.active_context_idx == context_idx && g_sync.active_viewport_id == viewport_id) {
+//         float norm_x = (mouse_pos.x - img_screen_pos.x) / view_size.x;
+//         float norm_y = (mouse_pos.y - img_screen_pos.y) / view_size.y;
+        
+//         cv::Rect roi = ctx.zoom_state.current_roi;
+//         g_sync.img_end_pixel = cv::Point2f(roi.x + norm_x * roi.width, roi.y + norm_y * roi.height);
+        
+//         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+//             g_sync.is_dragging = false;
+//             g_sync.has_persistent_rect = true; 
+//             for(auto& c : contexts) { c.needs_tonemap = true; updateViewportImage(c); }
+//         }
+//     }
+
+//     // zoom and panning 
+//     bool original_selecting = ctx.zoom_state.is_selecting;
+//     ctx.zoom_state.is_selecting = false;
+
+//     bool internal_tonemap = false;
+//     bool internal_texture = false;
+//     HandleZoomAndSelection(ctx.zoom_state, img_screen_pos, view_size, current_ldr, base_ldr, base_raw, ctx.colormap, internal_tonemap, internal_texture);
+//     ctx.zoom_state.is_selecting = original_selecting;
+
+//     bool needs_roi_update = false;
+//     HandleScrollZoom(ctx.zoom_state, img_screen_pos, view_size, current_raw, base_raw, needs_roi_update);
+    
+//     bool needs_pan_update = false;
+//     if (mouse_is_over && !over_buttons && !mouse_is_over_floating_buttons) {
+//         HandleMousePanning(ctx.zoom_state, view_size, current_raw, base_raw, needs_pan_update);
+//     }
+
+//     // PROPAGAR ZOOM/PAN/TONEMAP AL RESTO DE CONTEXTOS
+//     if (needs_roi_update || needs_pan_update || internal_texture || internal_tonemap) {
+//         if (internal_tonemap) ctx.needs_tonemap = true;
+//         updateViewportImage(ctx);
+        
+//         for (int i = 0; i < contexts.size(); ++i) {
+//             if (i != context_idx) {
+//                 contexts[i].zoom_state.current_roi = ctx.zoom_state.current_roi;
+//                 if (internal_tonemap) { 
+//                     contexts[i].colormap = ctx.colormap; 
+//                     contexts[i].needs_tonemap = true; 
+//                 }
+//                 updateViewportImage(contexts[i]);
+//             }
+//         }
+//     }
+    
+//     // render green rectangle
+//     if ((g_sync.is_dragging || g_sync.has_persistent_rect) && g_sync.img_start_pixel.x >= 0.0f) 
+//     {
+//         cv::Rect roi = ctx.zoom_state.current_roi;
+        
+//         float norm_p1_x = (g_sync.img_start_pixel.x - roi.x) / (float)roi.width;
+//         float norm_p1_y = (g_sync.img_start_pixel.y - roi.y) / (float)roi.height;
+//         float norm_p2_x = (g_sync.img_end_pixel.x - roi.x) / (float)roi.width;
+//         float norm_p2_y = (g_sync.img_end_pixel.y - roi.y) / (float)roi.height;
+        
+//         ImVec2 p1(img_screen_pos.x + norm_p1_x * view_size.x, img_screen_pos.y + norm_p1_y * view_size.y);
+//         ImVec2 p2(img_screen_pos.x + norm_p2_x * view_size.x, img_screen_pos.y + norm_p2_y * view_size.y);
+        
+//         ImGui::GetWindowDrawList()->PushClipRect(img_screen_pos, ImVec2(img_screen_pos.x + view_size.x, img_screen_pos.y + view_size.y), true);
+//         ImGui::GetWindowDrawList()->AddRect(p1, p2, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
+//         ImGui::GetWindowDrawList()->PopClipRect();
+
+//         if (g_sync.has_persistent_rect && g_sync.active_context_idx == context_idx && g_sync.active_viewport_id == viewport_id) 
+//         {
+//             ImGui::SetCursorScreenPos(dynamic_btn_pos);
+//             ImGui::PushID(context_idx * 100 + viewport_id); 
+            
+//             // BOTÓN ZOOM GLOBAL
+//             if (ImGui::Button("Zoom")) {
+//                 float x1 = std::min(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
+//                 float y1 = std::min(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
+//                 float x2 = std::max(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
+//                 float y2 = std::max(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
+
+//                 int roi_x = std::max(0, (int)x1);
+//                 int roi_y = std::max(0, (int)y1);
+//                 int roi_w = std::min(base_raw.cols - roi_x, (int)(x2 - x1));
+//                 int roi_h = std::min(base_raw.rows - roi_y, (int)(y2 - y1));
+
+//                 if (roi_w > 5 && roi_h > 5) {
+//                     for(auto& c : contexts) {
+//                         c.zoom_state.current_roi = cv::Rect(roi_x, roi_y, roi_w, roi_h);
+//                         c.needs_tonemap = true;
+//                         updateViewportImage(c);
+//                     }
+//                     g_sync.reset();
+//                 }
+//             }
+            
+//             ImGui::SameLine();
+//             // BOTÓN AUTO-RANGE GLOBAL CON MULTI-CHANNEL
+//             if (ImGui::Button("AutoRange")) {
+//                 float x1 = std::min(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
+//                 float y1 = std::min(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
+//                 float x2 = std::max(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
+//                 float y2 = std::max(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
+
+//                 int roi_x = std::max(0, (int)x1);
+//                 int roi_y = std::max(0, (int)y1);
+//                 int roi_w = std::min(base_raw.cols - roi_x, (int)(x2 - x1));
+//                 int roi_h = std::min(base_raw.rows - roi_y, (int)(y2 - y1));
+
+//                 if (roi_w > 5 && roi_h > 5) {
+//                     cv::Rect selection(roi_x, roi_y, roi_w, roi_h);
+                    
+//                     cv::Mat roi_mat = base_raw(selection);
+//                     std::vector<cv::Mat> channels;
+//                     cv::split(roi_mat, channels);
+                    
+//                     double global_min = std::numeric_limits<double>::max();
+//                     double global_max = std::numeric_limits<double>::lowest();
+                    
+//                     for(const auto& ch : channels) {
+//                         double ch_min, ch_max;
+//                         cv::minMaxLoc(ch, &ch_min, &ch_max);
+//                         if(ch_min < global_min) global_min = ch_min;
+//                         if(ch_max > global_max) global_max = ch_max;
+//                     }
+                    
+//                     for(auto& c : contexts) {
+//                         c.colormap.autoCenterAndRadius((float)global_min, (float)global_max);
+//                         c.needs_tonemap = true;
+//                         updateViewportImage(c);
+//                     }
+//                     g_sync.reset();
+//                 }
+//             }
+//             ImGui::PopID();
+//         }
+//     }
+
+//     if (g_sync.normalized_cursor_pos.x >= 0.0f && g_sync.normalized_cursor_pos.y >= 0.0f && !over_buttons && !mouse_is_over_floating_buttons) {
+//         ImVec2 target_pixel_pos(img_screen_pos.x + g_sync.normalized_cursor_pos.x * view_size.x, img_screen_pos.y + g_sync.normalized_cursor_pos.y * view_size.y);
+        
+//         float box_size = 4.0f; 
+//         ImVec2 p1(target_pixel_pos.x - box_size, target_pixel_pos.y - box_size);
+//         ImVec2 p2(target_pixel_pos.x + box_size, target_pixel_pos.y + box_size);
+        
+//         ImGui::GetWindowDrawList()->PushClipRect(img_screen_pos, ImVec2(img_screen_pos.x + view_size.x, img_screen_pos.y + view_size.y), true);
+//         ImGui::GetWindowDrawList()->AddRect(p1, p2, IM_COL32(0, 255, 0, 255), 0.0f, 0, 1.5f);
+//         ImGui::GetWindowDrawList()->PopClipRect();
+//     }
+
+//     // RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, current_raw);
+//     RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, current_raw, g_sync.normalized_cursor_pos);
+// }
+
 void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewport_id, cv::Mat& current_raw, cv::Mat& base_raw, cv::Mat& current_ldr, cv::Mat& base_ldr, GLuint texture_id)
 {
     if (current_ldr.empty() || !texture_id) return;
@@ -334,7 +566,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
 
     bool over_buttons = ImGui::IsAnyItemHovered();
 
-    // CALCULAR POSICIÓN BOTONES FLOTANTES
+    // Calculate floating buttons position
     bool mouse_is_over_floating_buttons = false;
     ImVec2 dynamic_btn_pos(0, 0);
     ImVec2 btn_box_size(145.0f, 25.0f); 
@@ -362,7 +594,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         }
     }
 
-    // INTERACCIONES: CLIC IZQUIERDO (Resetea la selección)
+    // Reset selection
     if (mouse_is_over && !over_buttons && !mouse_is_over_floating_buttons) {
         g_sync.normalized_cursor_pos = ImVec2((mouse_pos.x - img_screen_pos.x) / view_size.x, (mouse_pos.y - img_screen_pos.y) / view_size.y);
         
@@ -376,7 +608,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         }
     }
 
-    // INTERACCIONES: CLIC DERECHO (Inicia selección)
+    // Right click interactions
     if (mouse_is_over && !over_buttons && !mouse_is_over_floating_buttons && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         g_sync.is_dragging = true;
         g_sync.has_persistent_rect = false; 
@@ -395,7 +627,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         for(auto& c : contexts) { c.needs_tonemap = true; updateViewportImage(c); }
     }
 
-    // INTERACCIONES: ARRASTRE
+    // Dragging updates
     if (g_sync.is_dragging && g_sync.active_context_idx == context_idx && g_sync.active_viewport_id == viewport_id) {
         float norm_x = (mouse_pos.x - img_screen_pos.x) / view_size.x;
         float norm_y = (mouse_pos.y - img_screen_pos.y) / view_size.y;
@@ -410,7 +642,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         }
     }
 
-    // GESTIÓN DE ZOOM y PANEO
+    // Zoom and panning calculations
     bool original_selecting = ctx.zoom_state.is_selecting;
     ctx.zoom_state.is_selecting = false;
 
@@ -427,13 +659,13 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         HandleMousePanning(ctx.zoom_state, view_size, current_raw, base_raw, needs_pan_update);
     }
 
-    // PROPAGAR ZOOM/PAN/TONEMAP AL RESTO DE CONTEXTOS
+    // Propagate zoom updates to sync views
     if (needs_roi_update || needs_pan_update || internal_texture || internal_tonemap) {
         if (internal_tonemap) ctx.needs_tonemap = true;
         updateViewportImage(ctx);
         
-        for (int i = 0; i < contexts.size(); ++i) {
-            if (i != context_idx) {
+        for (size_t i = 0; i < contexts.size(); ++i) {
+            if ((int)i != context_idx) {
                 contexts[i].zoom_state.current_roi = ctx.zoom_state.current_roi;
                 if (internal_tonemap) { 
                     contexts[i].colormap = ctx.colormap; 
@@ -444,7 +676,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         }
     }
     
-    // RENDERIZAR RECUADRO VERDE Y BOTONES FLOTANTES
+    // Render green rectangle and metrics text overlay
     if ((g_sync.is_dragging || g_sync.has_persistent_rect) && g_sync.img_start_pixel.x >= 0.0f) 
     {
         cv::Rect roi = ctx.zoom_state.current_roi;
@@ -461,12 +693,32 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         ImGui::GetWindowDrawList()->AddRect(p1, p2, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
         ImGui::GetWindowDrawList()->PopClipRect();
 
+        // Bottom-left text overlay (X, Y, W, H)
+        int start_x = (int)g_sync.img_start_pixel.x;
+        int start_y = (int)g_sync.img_start_pixel.y;
+        int end_x   = (int)std::abs(g_sync.img_end_pixel.x) ;
+        int end_y  = (int)std::abs(g_sync.img_end_pixel.y);
+
+        char overlay_text[128];
+        snprintf(overlay_text, sizeof(overlay_text), "X1: %d  Y2: %d\nX2: %d  Y2: %d", start_x, start_y, end_x, end_y);
+
+        ImVec2 text_size = ImGui::CalcTextSize(overlay_text);
+        // Position offset calculated from bottom border
+        ImVec2 text_pos = ImVec2(img_screen_pos.x + 10.0f, img_screen_pos.y + view_size.y - text_size.y - 10.0f);
+        ImVec2 bg_p1 = ImVec2(text_pos.x - 5.0f, text_pos.y - 5.0f);
+        ImVec2 bg_p2 = ImVec2(text_pos.x + text_size.x + 5.0f, text_pos.y + text_size.y + 5.0f);
+
+        ImGui::GetWindowDrawList()->PushClipRect(img_screen_pos, ImVec2(img_screen_pos.x + view_size.x, img_screen_pos.y + view_size.y), true);
+        ImGui::GetWindowDrawList()->AddRectFilled(bg_p1, bg_p2, IM_COL32(0, 0, 0, 180), 4.0f);
+        ImGui::GetWindowDrawList()->AddText(text_pos, IM_COL32(0, 255, 0, 255), overlay_text);
+        ImGui::GetWindowDrawList()->PopClipRect();
+
         if (g_sync.has_persistent_rect && g_sync.active_context_idx == context_idx && g_sync.active_viewport_id == viewport_id) 
         {
             ImGui::SetCursorScreenPos(dynamic_btn_pos);
             ImGui::PushID(context_idx * 100 + viewport_id); 
             
-            // BOTÓN ZOOM GLOBAL
+            // Global Zoom
             if (ImGui::Button("Zoom")) {
                 float x1 = std::min(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
                 float y1 = std::min(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
@@ -489,7 +741,7 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
             }
             
             ImGui::SameLine();
-            // BOTÓN AUTO-RANGE GLOBAL CON MULTI-CHANNEL
+            // Global AutoRange
             if (ImGui::Button("AutoRange")) {
                 float x1 = std::min(g_sync.img_start_pixel.x, g_sync.img_end_pixel.x);
                 float y1 = std::min(g_sync.img_start_pixel.y, g_sync.img_end_pixel.y);
@@ -542,10 +794,8 @@ void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewp
         ImGui::GetWindowDrawList()->PopClipRect();
     }
 
-    // RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, current_raw);
-    RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, current_raw, g_sync.normalized_cursor_pos);
+    RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, current_ldr, current_raw, g_sync.normalized_cursor_pos);
 }
-
 
 void renderViewportAndInteractions()
 {

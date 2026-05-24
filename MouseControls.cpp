@@ -235,12 +235,13 @@ void HandleMousePanning(ZoomState& zoom_state, const ImVec2& size, cv::Mat& curr
 }
 
 // pixel values overlay
-void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& size, const cv::Mat& current_img_ldr, const ImVec2& normalized_cursor_pos)
+void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_screen_pos, const ImVec2& size, const cv::Mat& current_img_ldr, const cv::Mat& raw_hdr_img, const ImVec2& normalized_cursor_pos)
 {
-    if (current_img_ldr.empty()) return;
+    // Check using the raw_hdr_img instead
+    if (raw_hdr_img.empty()) return;
 
-    int visible_cols = current_img_ldr.cols;
-    int visible_rows = current_img_ldr.rows;
+    int visible_cols = raw_hdr_img.cols;
+    int visible_rows = raw_hdr_img.rows;
 
     float pixel_width_dst = size.x / static_cast<float>(visible_cols);
     float pixel_height_dst = size.y / static_cast<float>(visible_rows);
@@ -256,12 +257,25 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
     ImGui::SetWindowFontScale(dynamic_font_scale);
     float scaled_font_height = ImGui::GetFontSize();
 
-    // CALCULAR EL PÍXEL EXACTO USANDO COORDENADAS SINCRONIZADAS
     int hover_c = -1;
     int hover_r = -1;
     if (normalized_cursor_pos.x >= 0.0f && normalized_cursor_pos.y >= 0.0f) {
         hover_c = static_cast<int>(normalized_cursor_pos.x * visible_cols);
         hover_r = static_cast<int>(normalized_cursor_pos.y * visible_rows);
+    }
+
+    int img_type = raw_hdr_img.type();
+    int depth = raw_hdr_img.depth();
+    bool is_float = (depth == CV_32F || depth == CV_64F);
+
+    // Check actual HDR range values
+    bool use_scientific = false;
+    if (is_float) {
+        double max_val = 0.0;
+        cv::minMaxLoc(raw_hdr_img, nullptr, &max_val);
+        if (max_val < 0.1) {
+            use_scientific = true;
+        }
     }
 
     for (int r = 0; r < visible_rows; ++r)
@@ -273,7 +287,6 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
             float x1 = x0 + pixel_width_dst;
             float y1 = y0 + pixel_height_dst;
 
-            // LA MAGIA OCURRE AQUÍ: Comparamos el índice del píxel, no el ratón físico
             bool is_hovered = (c == hover_c && r == hover_r);
 
             if (is_hovered)
@@ -285,40 +298,59 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
                 draw_list->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), IM_COL32(255, 255, 255, 30), 0.0f, 0, 1.0f);
             }
 
-            int b = 0, g = 0, r_val = 0;
-            int img_type = current_img_ldr.type();
+            float r_val = 0.0f, g_val = 0.0f, b_val = 0.0f;
 
-            if (img_type == CV_8UC3) {
-                cv::Vec3b pixel = current_img_ldr.at<cv::Vec3b>(r, c);
-                b = pixel[0]; g = pixel[1]; r_val = pixel[2];
+            // Read from raw_hdr_img data directly
+            if (img_type == CV_32FC3) { 
+                cv::Vec3f pixel = raw_hdr_img.at<cv::Vec3f>(r, c);
+                b_val = pixel[0]; g_val = pixel[1]; r_val = pixel[2];
+            }
+            else if (img_type == CV_32FC1) {
+                b_val = g_val = r_val = raw_hdr_img.at<float>(r, c);
+            }
+            else if (img_type == CV_8UC3) {
+                cv::Vec3b pixel = raw_hdr_img.at<cv::Vec3b>(r, c);
+                b_val = pixel[0]; g_val = pixel[1]; r_val = pixel[2];
             } 
-            else if (img_type == CV_8UC4) { // Muy común en macOS
-                cv::Vec4b pixel = current_img_ldr.at<cv::Vec4b>(r, c);
-                b = pixel[0]; g = pixel[1]; r_val = pixel[2];
+            else if (img_type == CV_8UC4) { 
+                cv::Vec4b pixel = raw_hdr_img.at<cv::Vec4b>(r, c);
+                b_val = pixel[0]; g_val = pixel[1]; r_val = pixel[2];
             }
-            else if (img_type == CV_32FC3) { // Formato HDR/RAW típico
-                cv::Vec3f pixel = current_img_ldr.at<cv::Vec3f>(r, c);
-                // Si es RAW flotante (0.0 a 1.0), lo escalamos a 0-255 para el texto
-                b = std::clamp(static_cast<int>(pixel[0] * 255.0f), 0, 255);
-                g = std::clamp(static_cast<int>(pixel[1] * 255.0f), 0, 255);
-                r_val = std::clamp(static_cast<int>(pixel[2] * 255.0f), 0, 255);
-            }
-            else if (img_type == CV_8UC1) { // Escala de grises
-                uchar pixel = current_img_ldr.at<uchar>(r, c);
-                b = g = r_val = pixel; 
+            else if (img_type == CV_8UC1) { 
+                b_val = g_val = r_val = raw_hdr_img.at<uchar>(r, c); 
             }
             else {
-                // Si es un formato rarísimo (como 16 bits), ponemos color neutro para evitar morir
-                b = g = r_val = 128;
+                b_val = g_val = r_val = 0.5f;
             }
 
-            char text_r[16]; char text_g[16]; char text_b[16];
-            snprintf(text_r, sizeof(text_r), "R:%d", r_val);
-            snprintf(text_g, sizeof(text_g), "G:%d", g);
-            snprintf(text_b, sizeof(text_b), "B:%d", b);
+            char text_r[32]; char text_g[32]; char text_b[32];
 
-            float luminance = 0.299f * r_val + 0.587f * g + 0.114f * b;
-            bool is_light_bg = (luminance > 128.0f);
+            if (is_float) {
+                if (use_scientific) {
+                    snprintf(text_r, sizeof(text_r), "R:%.2e", r_val);
+                    snprintf(text_g, sizeof(text_g), "G:%.2e", g_val);
+                    snprintf(text_b, sizeof(text_b), "B:%.2e", b_val);
+                } else {
+                    snprintf(text_r, sizeof(text_r), "R:%.3f", r_val);
+                    snprintf(text_g, sizeof(text_g), "G:%.3f", g_val);
+                    snprintf(text_b, sizeof(text_b), "B:%.3f", b_val);
+                }
+            } else {
+                snprintf(text_r, sizeof(text_r), "R:%d", (int)r_val);
+                snprintf(text_g, sizeof(text_g), "G:%d", (int)g_val);
+                snprintf(text_b, sizeof(text_b), "B:%d", (int)b_val);
+            }
+
+            // Text contrast using current_img_ldr brightness context
+            float luma = 0.0f;
+            if (!current_img_ldr.empty()) {
+                int ldr_type = current_img_ldr.type();
+                if (ldr_type == CV_8UC3 || ldr_type == CV_8UC4) {
+                    cv::Vec3b ldr_pix = current_img_ldr.at<cv::Vec3b>(r, c);
+                    luma = (0.299f * ldr_pix[2] + 0.587f * ldr_pix[1] + 0.114f * ldr_pix[0]) / 255.0f;
+                }
+            }
+            bool is_light_bg = (luma > 0.5f);
 
             ImU32 color_r = is_light_bg ? IM_COL32(180, 0, 0, 255)   : IM_COL32(255, 80, 80, 255);
             ImU32 color_g = is_light_bg ? IM_COL32(0, 130, 0, 255)   : IM_COL32(80, 255, 80, 255);
