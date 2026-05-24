@@ -250,9 +250,9 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-    float base_threshold = 42.0f; 
+    float base_threshold = 85.0f; 
     float dynamic_font_scale = pixel_width_dst / base_threshold;
-    dynamic_font_scale = std::clamp(dynamic_font_scale, 0.35f, 4.0f);
+    dynamic_font_scale = std::clamp(dynamic_font_scale, 0.15f, 4.0f);
 
     ImGui::SetWindowFontScale(dynamic_font_scale);
     float scaled_font_height = ImGui::GetFontSize();
@@ -327,9 +327,9 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
 
             if (is_float) {
                 if (use_scientific) {
-                    snprintf(text_r, sizeof(text_r), "R:%.2e", r_val);
-                    snprintf(text_g, sizeof(text_g), "G:%.2e", g_val);
-                    snprintf(text_b, sizeof(text_b), "B:%.2e", b_val);
+                    snprintf(text_r, sizeof(text_r), "R:%.3e", r_val);
+                    snprintf(text_g, sizeof(text_g), "G:%.3e", g_val);
+                    snprintf(text_b, sizeof(text_b), "B:%.3e", b_val);
                 } else {
                     snprintf(text_r, sizeof(text_r), "R:%.3f", r_val);
                     snprintf(text_g, sizeof(text_g), "G:%.3f", g_val);

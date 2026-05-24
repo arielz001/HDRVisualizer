@@ -2,32 +2,25 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 
-#define GL_SILENCE_DEPRECATION
-#include <GLFW/glfw3.h>
-
 class VideoPlayer {
 public:
     VideoPlayer();
     ~VideoPlayer();
 
     bool loadVideo(const std::string& filepath);
-    void update(); 
-    void renderUI(); 
+    void release();
 
-private:
-    void releaseResources();
-    void updateTexture();
-
-    cv::VideoCapture m_capture;
-    cv::Mat m_frame;
+    bool getNextFrame(cv::Mat& frame);
+    bool seekTo(float progress, cv::Mat& frame);
     
-    GLuint m_textureId; 
-
+    bool isLoaded() const;
+    bool isPlaying() const;
+    void setPlaying(bool playing);
+    
+    float getProgress() const;
+    
+private:
+    cv::VideoCapture m_capture;
     bool m_isPlaying;
     bool m_isLoaded;
-    double m_fps;
-    int m_totalFrames;
-    int m_currentFrameIdx;
-
-    double m_lastFrameTime;
 };

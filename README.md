@@ -28,10 +28,7 @@ The engine natively decodes raw polarization data alongside standard HDR formats
 
 Raw polarization mosaics are automatically decoded into a synchronized 6-panel layout, displaying the four polarization angles together with **AoLP** and **DoLP** computed in real time for analysis.
 
-<p align="center">
-  <img src="assets/polarized.png" alt="Polarized image visualization workspace" width="1000"/>
-</p>
-
+![demo](./assets/img_used.gif)
 
 ---
 ### HDR visualization with global tonemapping
@@ -39,10 +36,19 @@ Raw polarization mosaics are automatically decoded into a synchronized 6-panel l
 The viewer preserves the global dynamic range of the original HDR image while applying real-time tonemapping for display. Zooming or panning does not affect exposure, brightness, or contrast, allowing accurate inspection of the original scene radiance.
 
 <p align="center">
-  <img src="assets/hdr.png" alt="HDR visualization with tonemapping" width="1000"/>
+  <img src="assets/hdr.png" alt="HDR visualization with tonemapping" width="500"/>
 </p>
 
 ---
+
+### Video playback
+
+The viewer also supports video playback.
+
+<p align="center">
+  <img src="assets/videoplayback.png" alt="Video playback" width="500"/>
+</p>
+
 
 
 ## 🎮 Controls & Interface Guide
@@ -66,7 +72,7 @@ The viewer preserves the global dynamic range of the original HDR image while ap
 | `S` | **Cycle Color Spaces** | Instantly toggles and transitions the active color space rendering properties. |
 | `Q` | **Exit App** | Instantly closes the visualizer window safely. |
 | `←` / `→` | **File Navigation** | Switches to the previous or next image available in the loaded directory sequence. |
-
+| `SPACE` | **File Navigation** | Only works in video playback mode. Toggles between playing and paused states.
 ---
 
 ## 🎛️ Contextual Actions & Parameters
