@@ -162,7 +162,7 @@ riv ./imgs
 
 ## Related project
 
-riv is inspired by [vpv](https://github.com/kidanger/vpv), a popular Image viewer for Linux and MacOS.
+riv is fully inspired by [vpv](https://github.com/kidanger/vpv), a popular Image viewer for Linux and MacOS.
 
 
 ## To cite this software
