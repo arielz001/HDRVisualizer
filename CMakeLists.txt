@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(rev)
+project(riv)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,15 +44,15 @@ set(SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
-add_executable(rev ${SOURCES})
+add_executable(riv ${SOURCES})
 
-target_include_directories(rev PRIVATE
+target_include_directories(riv PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
 )
 
 # Link libraries
-target_link_libraries(rev
+target_link_libraries(riv
     ${OpenCV_LIBS}
     OpenGL::GL
     glfw
@@ -60,19 +60,19 @@ target_link_libraries(rev
 
 # Link OpenEXR if found
 if(OpenEXR_FOUND)
-    target_link_libraries(rev ${OPENEXR_LIBRARIES})
-    target_include_directories(rev PRIVATE ${OPENEXR_INCLUDE_DIRS})
+    target_link_libraries(riv ${OPENEXR_LIBRARIES})
+    target_include_directories(riv PRIVATE ${OPENEXR_INCLUDE_DIRS})
 endif()
 
 # Set output directory
-set_target_properties(rev PROPERTIES
+set_target_properties(riv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 # Compiler optimizations for release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(rev PRIVATE -O3 -march=native)
+        target_compile_options(riv PRIVATE -O3 -march=native)
     endif()
 endif()
 
@@ -81,3 +81,5 @@ endif()
 
 # IMGUI
 # sudo apt install libglfw3-dev libopencv-dev
+
+install(TARGETS riv DESTINATION bin)
