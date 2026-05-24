@@ -1,6 +1,6 @@
-# 🚀 rev (Research Engine Visualizer)
+# 🚀 riv (Research Image Visualizer)
 
-**rev** is an interactive High Dynamic Range (HDR) and Polarized image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**. 
+**riv** is an interactive High Dynamic Range (HDR) and Polarized image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**. 
 
 The engine natively decodes raw polarization data alongside standard HDR formats, providing an optimized multi-panel monolithic grid layout for advanced computer vision analysis.
 
@@ -110,8 +110,8 @@ Actually, the application is working in ubuntu 22.04 and macos m1. I'm not sure 
 ## Build from source
 
 ```bash
-git clone https://github.com/arielz001/rev.git
-cd rev
+git clone https://github.com/arielz001/riv.git
+cd riv
 git submodule update --init --recursive
 
 mkdir build
@@ -131,10 +131,10 @@ sudo make install
 
 ## Usage
 
-Run **rev** by passing an image file or a directory containing images:
+Run **riv** by passing an image file or a directory containing images:
 
 ```bash
-rev <image_or_folder>
+riv <image_or_folder>
 ```
 
 ### Examples
@@ -142,19 +142,19 @@ rev <image_or_folder>
 Open a single HDR image:
 
 ```bash
-rev ./imgs/pingpong.exr
+riv ./imgs/pingpong.exr
 ```
 
 Open a single polarized image:
 
 ```bash
-rev ./imgs/image.raw
+riv ./imgs/image.raw
 ```
 
 Open a folder and browse through all images with ← / →:
 
 ```bash
-rev ./imgs
+riv ./imgs
 ```
 
 
@@ -162,15 +162,15 @@ rev ./imgs
 
 ## Related project
 
-rev is inspired by [vpv](https://github.com/kidanger/vpv), a popular Image viewer for Linux and MacOS.
+riv is inspired by [vpv](https://github.com/kidanger/vpv), a popular Image viewer for Linux and MacOS.
 
 
 ## To cite this software
 
 ```
-@misc{rev2026,
+@misc{riv2026,
   author       = {arielz001},
-  title        = {rev: Interactive HDR Image Viewer},
+  title        = {riv: Research Image Visualizer},
   year         = {2026},
   publisher    = {GitHub},
   journal      = {GitHub repository},
