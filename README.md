@@ -22,6 +22,29 @@ The engine natively decodes raw polarization data alongside standard HDR formats
 
 ---
 
+
+## 📷 Example Visualizations
+### Polarization visualization workspace
+
+Raw polarization mosaics are automatically decoded into a synchronized 6-panel layout, displaying the four polarization angles together with **AoLP** and **DoLP** computed in real time for analysis.
+
+<p align="center">
+  <img src="assets/polarized.png" alt="Polarized image visualization workspace" width="1000"/>
+</p>
+
+
+---
+### HDR visualization with global tonemapping
+
+The viewer preserves the global dynamic range of the original HDR image while applying real-time tonemapping for display. Zooming or panning does not affect exposure, brightness, or contrast, allowing accurate inspection of the original scene radiance.
+
+<p align="center">
+  <img src="assets/hdr.png" alt="HDR visualization with tonemapping" width="1000"/>
+</p>
+
+---
+
+
 ## 🎮 Controls & Interface Guide
 
 ### 🖱️ Mouse Bindings
@@ -83,17 +106,57 @@ Actually, the application is working in ubuntu 22.04 and macos m1. I'm not sure 
 
 ---
 
-## To clone this project 
+
+## Build from source
 
 ```bash
 git clone https://github.com/arielz001/rev.git
 cd rev
 git submodule update --init --recursive
+
 mkdir build
 cd build
+
 cmake ..
 make
 ```
+
+### Optional install (Linux)
+
+```bash
+sudo make install
+```
+
+---
+
+## Usage
+
+Run **rev** by passing an image file or a directory containing images:
+
+```bash
+rev <image_or_folder>
+```
+
+### Examples
+
+Open a single HDR image:
+
+```bash
+rev ./imgs/pingpong.exr
+```
+
+Open a single polarized image:
+
+```bash
+rev ./imgs/image.raw
+```
+
+Open a folder and browse through all images with ← / →:
+
+```bash
+rev ./imgs
+```
+
 
 ---
 
