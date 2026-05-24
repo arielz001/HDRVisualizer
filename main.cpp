@@ -1,5 +1,5 @@
 // ============================================================================
-// 1. LIBRARIES AND DEPENDENCIES
+// 1. LIBRARIES
 // ============================================================================
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -21,34 +21,45 @@
 #include "Colorspace.h"
 
 // ============================================================================
-// 2. DATA STRUCTURES
+// 2. STRUCTURES
 // ============================================================================
 struct AppContext 
 {
-    // Images & Graphics
     cv::Mat base_img_raw;    
     cv::Mat base_img_ldr;    
     cv::Mat current_img_ldr; 
     cv::Mat current_img_raw; 
     GLuint texture = 0;      
 
-    // State Tracking
+    std::vector<cv::Mat> polar_raw_channels; 
+    std::vector<cv::Mat> polar_ldr_channels; 
+    std::vector<cv::Mat> polar_current_ldr;  
+    std::vector<cv::Mat> polar_current_raw;  
+    std::vector<GLuint> polar_textures;      
+    std::vector<std::string> polar_names = {"0 deg", "45 deg", "AoLP", "90 deg", "135 deg", "DoLP"};
+
     std::vector<std::string> images;
     int current_idx = 0;
     bool is_polarized = false; 
     bool needs_tonemap = false; 
     bool needs_texture = false; 
 
-    // Internal Modules
     ZoomState zoom_state;
     Colormap colormap;
     Colorspace colorspace;
-    int mode = 1; // 1: Reinhard, 2: Drago, 3: Mantiuk
+    int mode = 1; 
     
-    // Tonemapping Parameters
     float r_gamma = 1.0f, intensity = 0.0f, light_adapt = 0.5f, color_adapt = 0.0f; 
     float d_gamma = 1.0f, d_saturation = 1.0f, d_bias = 0.85f;                     
     float m_gamma = 1.0f, m_scale = 0.7f, m_saturation = 1.0f;                     
+
+    AppContext() {
+        polar_raw_channels.resize(6);
+        polar_ldr_channels.resize(6);
+        polar_current_ldr.resize(6);
+        polar_current_raw.resize(6);
+        polar_textures.assign(6, 0);
+    }
 
     void resetToFactoryDefaults() {
         r_gamma = 1.0f; intensity = 0.0f; light_adapt = 0.5f; color_adapt = 0.0f;
@@ -61,50 +72,95 @@ struct AppContext
 };
 
 // ============================================================================
-// 3. CORE CORE PIPELINE FUNCTIONS
+// 3. PIPELINE FUNCTIONS
 // ============================================================================
 void updateGlobalTonemapCache(AppContext& ctx)
 {
-    if (ctx.base_img_raw.empty()) return;
+    if (ctx.is_polarized) {
+        for (int i = 0; i < 6; ++i) {
+            if (ctx.polar_raw_channels[i].empty()) continue;
+            
+            cv::Mat ldr;
+            if (i == 2 || i == 5) {
+                ctx.polar_raw_channels[i].convertTo(ldr, CV_8UC3, 255.0);
+            } 
+            else {
+                cv::Mat input_raw = ctx.polar_raw_channels[i];
+                if (ctx.colormap.is_active) {
+                    input_raw = ctx.colormap.apply(ctx.polar_raw_channels[i]); 
+                }
 
-    cv::Mat full_canvas_ldr;
-    if (ctx.colormap.is_active) {
-        cv::Mat normalized = ctx.colormap.apply(ctx.base_img_raw);
-        normalized.convertTo(full_canvas_ldr, CV_8UC3, 255.0);
-    } 
-    else {
-        full_canvas_ldr = applyTonemap(ctx.base_img_raw, ctx.mode,
-                                ctx.r_gamma, ctx.intensity, ctx.light_adapt, ctx.color_adapt,
-                                ctx.d_gamma, ctx.d_saturation, ctx.d_bias,
-                                ctx.m_gamma, ctx.m_scale, ctx.m_saturation);
+                ldr = applyTonemap(input_raw, ctx.mode,
+                                   ctx.r_gamma, ctx.intensity, ctx.light_adapt, ctx.color_adapt,
+                                   ctx.d_gamma, ctx.d_saturation, ctx.d_bias,
+                                   ctx.m_gamma, ctx.m_scale, ctx.m_saturation);
+            }
+            ctx.colorspace.apply(ldr);
+            ctx.polar_ldr_channels[i] = ldr;
+        }
+    } else {
+        if (ctx.base_img_raw.empty()) return;
+        cv::Mat full_canvas_ldr;
+        if (ctx.colormap.is_active) {
+            cv::Mat normalized = ctx.colormap.apply(ctx.base_img_raw);
+            full_canvas_ldr = applyTonemap(normalized, ctx.mode,
+                                    ctx.r_gamma, ctx.intensity, ctx.light_adapt, ctx.color_adapt,
+                                    ctx.d_gamma, ctx.d_saturation, ctx.d_bias,
+                                    ctx.m_gamma, ctx.m_scale, ctx.m_saturation);
+        } else {
+            full_canvas_ldr = applyTonemap(ctx.base_img_raw, ctx.mode,
+                                    ctx.r_gamma, ctx.intensity, ctx.light_adapt, ctx.color_adapt,
+                                    ctx.d_gamma, ctx.d_saturation, ctx.d_bias,
+                                    ctx.m_gamma, ctx.m_scale, ctx.m_saturation);
+        }
+        ctx.colorspace.apply(full_canvas_ldr);
+        ctx.base_img_ldr = full_canvas_ldr; 
     }
-
-    ctx.colorspace.apply(full_canvas_ldr);
-    ctx.base_img_ldr = full_canvas_ldr; 
 }
 
 void updateViewportImage(AppContext& ctx)
 {
-    if (ctx.base_img_ldr.empty()) return;
+    if (ctx.is_polarized) {
+        if (ctx.polar_ldr_channels[0].empty()) return;
+        
+        int w = ctx.polar_raw_channels[0].cols;
+        int h = ctx.polar_raw_channels[0].rows;
+        
+        ctx.zoom_state.current_roi &= cv::Rect(0, 0, w, h);
+        if (ctx.zoom_state.current_roi.width <= 0 || ctx.zoom_state.current_roi.height <= 0) {
+            ctx.zoom_state.current_roi = cv::Rect(0, 0, w, h);
+        }
 
-    ctx.zoom_state.current_roi &= cv::Rect(0, 0, ctx.base_img_raw.cols, ctx.base_img_raw.rows);
-    if (ctx.zoom_state.current_roi.width <= 0 || ctx.zoom_state.current_roi.height <= 0) {
-        ctx.zoom_state.current_roi = cv::Rect(0, 0, ctx.base_img_raw.cols, ctx.base_img_raw.rows);
+        for (int i = 0; i < 6; ++i) {
+            ctx.polar_current_ldr[i] = ctx.polar_ldr_channels[i](ctx.zoom_state.current_roi).clone();
+            ctx.polar_current_raw[i] = ctx.polar_raw_channels[i](ctx.zoom_state.current_roi).clone();
+        }
+    } else {
+        if (ctx.base_img_ldr.empty()) return;
+        ctx.zoom_state.current_roi &= cv::Rect(0, 0, ctx.base_img_raw.cols, ctx.base_img_raw.rows);
+        if (ctx.zoom_state.current_roi.width <= 0 || ctx.zoom_state.current_roi.height <= 0) {
+            ctx.zoom_state.current_roi = cv::Rect(0, 0, ctx.base_img_raw.cols, ctx.base_img_raw.rows);
+        }
+        ctx.current_img_ldr = ctx.base_img_ldr(ctx.zoom_state.current_roi).clone();
+        ctx.current_img_raw = ctx.base_img_raw(ctx.zoom_state.current_roi).clone();
     }
-
-    ctx.current_img_ldr = ctx.base_img_ldr(ctx.zoom_state.current_roi).clone();
-    ctx.current_img_raw = ctx.base_img_raw(ctx.zoom_state.current_roi).clone();
-
     ctx.needs_texture = true;
 }
 
 void updateTexture(AppContext& ctx)
 {
-    if (ctx.current_img_ldr.empty()) return;
-    if (ctx.texture) glDeleteTextures(1, &ctx.texture);
-    ctx.texture = matToTexture(ctx.current_img_ldr);
+    if (ctx.is_polarized) {
+        for (int i = 0; i < 6; ++i) {
+            if (ctx.polar_current_ldr[i].empty()) continue;
+            if (ctx.polar_textures[i]) glDeleteTextures(1, &ctx.polar_textures[i]);
+            ctx.polar_textures[i] = matToTexture(ctx.polar_current_ldr[i]);
+        }
+    } else {
+        if (ctx.current_img_ldr.empty()) return;
+        if (ctx.texture) glDeleteTextures(1, &ctx.texture);
+        ctx.texture = matToTexture(ctx.current_img_ldr);
+    }
 }
-
 
 void loadRawImage(AppContext& ctx, int i)
 {
@@ -123,58 +179,30 @@ void loadRawImage(AppContext& ctx, int i)
             int w = mosaic.cols / 2;
             int h = mosaic.rows / 2;
 
-            // Extract clean channels for physical computation
-            cv::Mat p0   = mosaic(cv::Rect(0, 0, w, h)).clone();
-            cv::Mat p45  = mosaic(cv::Rect(w, 0, w, h)).clone();
-            cv::Mat p90  = mosaic(cv::Rect(0, h, w, h)).clone();
-            cv::Mat p135 = mosaic(cv::Rect(w, h, w, h)).clone();  
+            ctx.polar_raw_channels[0] = mosaic(cv::Rect(0, 0, w, h)).clone(); // 0 deg
+            ctx.polar_raw_channels[1] = mosaic(cv::Rect(w, 0, w, h)).clone(); // 45 deg
+            ctx.polar_raw_channels[3] = mosaic(cv::Rect(0, h, w, h)).clone(); // 90 deg
+            ctx.polar_raw_channels[4] = mosaic(cv::Rect(w, h, w, h)).clone(); // 135 deg
 
-            // Compute Stokes vectors before modifying pixels
-            std::vector<cv::Mat> bgr_channels = { p0, p45, p90, p135 };
+            std::vector<cv::Mat> bgr_channels = { ctx.polar_raw_channels[0], ctx.polar_raw_channels[1], ctx.polar_raw_channels[3], ctx.polar_raw_channels[4] };
             PolarizationResult polar = computePolarization(bgr_channels);
-
-            auto addLabel = [](cv::Mat& img, const std::string& text) {
-                cv::putText(img, text, cv::Point(10, 40), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(0, 0, 0), 5, cv::LINE_AA);
-                cv::putText(img, text, cv::Point(10, 40), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(1, 1, 1), 2, cv::LINE_AA);
-            };
-
-            // Burn UI labels into intensity channels
-            addLabel(p0,   "0");
-            addLabel(p45,  "45");
-            addLabel(p90,  "90");
-            addLabel(p135, "135");
-
-            // Assemble left mosaic panel
-            cv::Mat labeled_mosaic;
-            cv::Mat top_mosaic, bot_mosaic;
-            cv::hconcat(p0, p45, top_mosaic);
-            cv::hconcat(p90, p135, bot_mosaic);
-            cv::vconcat(top_mosaic, bot_mosaic, labeled_mosaic);
             
-            // Process DoLP
-            cv::Mat dolp_8u, dolp_rgb, dolp_32f;
-            polar.DoLP.convertTo(dolp_8u, CV_8UC1, 255.0);
-            cv::applyColorMap(dolp_8u, dolp_rgb, cv::COLORMAP_JET);
-            dolp_rgb.convertTo(dolp_32f, CV_32FC3, 1.0 / 255.0);
-            cv::resize(dolp_32f, dolp_32f, cv::Size(w, h));
-            addLabel(dolp_32f, "DoLP"); 
-
-            // Process AoLP
+            // AoLP channel
             cv::Mat aolp_norm = (polar.AoLP + (M_PI / 2.0f)) / M_PI; 
-            cv::Mat aolp_8u, aolp_rgb, aolp_32f;
+            cv::Mat aolp_8u, aolp_rgb;
             aolp_norm.convertTo(aolp_8u, CV_8UC1, 255.0);
             cv::applyColorMap(aolp_8u, aolp_rgb, cv::COLORMAP_HSV);
-            aolp_rgb.convertTo(aolp_32f, CV_32FC3, 1.0 / 255.0);
-            cv::resize(aolp_32f, aolp_32f, cv::Size(w, h));
-            addLabel(aolp_32f, "AoLP"); 
+            aolp_rgb.convertTo(ctx.polar_raw_channels[2], CV_32FC3, 1.0 / 255.0);
+            cv::resize(ctx.polar_raw_channels[2], ctx.polar_raw_channels[2], cv::Size(w, h));
 
-            // Assemble right analysis panel
-            cv::Mat right_block;
-            cv::vconcat(aolp_32f, dolp_32f, right_block);
+            // DoLP channel
+            cv::Mat dolp_8u, dolp_rgb;
+            polar.DoLP.convertTo(dolp_8u, CV_8UC1, 255.0);
+            cv::applyColorMap(dolp_8u, dolp_rgb, cv::COLORMAP_JET);
+            dolp_rgb.convertTo(ctx.polar_raw_channels[5], CV_32FC3, 1.0 / 255.0);
+            cv::resize(ctx.polar_raw_channels[5], ctx.polar_raw_channels[5], cv::Size(w, h));
 
-            // Generate final monolithic 6-panel matrix
-            ctx.base_img_raw = cv::Mat();
-            cv::hconcat(labeled_mosaic, right_block, ctx.base_img_raw);
+            ctx.zoom_state.Reset(w, h); 
         }
     } 
     else 
@@ -184,18 +212,19 @@ void loadRawImage(AppContext& ctx, int i)
             double max_val = (ctx.base_img_raw.depth() == CV_16U) ? 65535.0 : 255.0;
             ctx.base_img_raw.convertTo(ctx.base_img_raw, CV_32FC3, 1.0 / max_val);
         }
+        if (!ctx.base_img_raw.empty()) {
+            ctx.zoom_state.Reset(ctx.base_img_raw.cols, ctx.base_img_raw.rows);
+        }
     }
 
-    if (!ctx.base_img_raw.empty()) {
-        ctx.zoom_state.Reset(ctx.base_img_raw.cols, ctx.base_img_raw.rows); 
-        ctx.colormap.reset(); 
-        updateGlobalTonemapCache(ctx);
-    }
+    ctx.colormap.reset(); 
+    updateGlobalTonemapCache(ctx);
     ctx.needs_tonemap = false; 
     updateViewportImage(ctx); 
 }
+
 // ============================================================================
-// 4. GUI RENDERING SUB-ROUTINES
+// 4. RENDERING SUB-ROUTINES
 // ============================================================================
 void renderControlPanel(AppContext& ctx, GLFWwindow* window)
 {
@@ -222,7 +251,9 @@ void renderControlPanel(AppContext& ctx, GLFWwindow* window)
     }
 
     if (ImGui::Button("Reset Zoom")) {
-        ctx.zoom_state.Reset(ctx.base_img_raw.cols, ctx.base_img_raw.rows);
+        int w = ctx.is_polarized ? ctx.polar_raw_channels[0].cols : ctx.base_img_raw.cols;
+        int h = ctx.is_polarized ? ctx.polar_raw_channels[0].rows : ctx.base_img_raw.rows;
+        ctx.zoom_state.Reset(w, h);
         updateViewportImage(ctx);
     }
 
@@ -234,61 +265,136 @@ void renderControlPanel(AppContext& ctx, GLFWwindow* window)
         }
     }
 }
-
 void renderViewportAndInteractions(AppContext& ctx)
 {
     ImGui::BeginChild("img", ImVec2(0, 0), true);
     ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    if (!ctx.current_img_ldr.empty() && ctx.texture)
+    if (!ctx.is_polarized) 
     {
-        float ar = (float)ctx.current_img_ldr.cols / ctx.current_img_ldr.rows;
-        ImVec2 size = avail;
-
-        if (avail.x / avail.y > ar) size.x = avail.y * ar;
-        else size.y = avail.x / ar;
-
-        ImVec2 img_cursor_pos((avail.x - size.x) * 0.5f, (avail.y - size.y) * 0.5f);
-        ImGui::SetCursorPos(img_cursor_pos);
-        
-        ImVec2 img_screen_pos = ImGui::GetCursorScreenPos();
-        ImGui::Image((void*)(intptr_t)ctx.texture, size);
-
-        // Process Interactive Inputs
-        HandleZoomAndSelection(ctx.zoom_state, img_screen_pos, size, ctx.current_img_ldr, ctx.base_img_ldr, ctx.base_img_raw, ctx.colormap, ctx.needs_tonemap, ctx.needs_texture);
-        if (ctx.needs_tonemap) {
-            updateGlobalTonemapCache(ctx);
-            updateViewportImage(ctx);
-            ctx.needs_tonemap = false;
-        }
-
-        bool needs_roi_update = false;
-        HandleScrollZoom(ctx.zoom_state, img_screen_pos, size, ctx.current_img_raw, ctx.base_img_raw, needs_roi_update);
-        if (needs_roi_update) {
-            updateViewportImage(ctx);
-        }
-
-        bool needs_pan_update = false;
-        ImVec2 mouse_pos = ImGui::GetMousePos();
-        bool mouse_is_over_image = (mouse_pos.x >= img_screen_pos.x && mouse_pos.x <= (img_screen_pos.x + size.x)) &&
-                                    (mouse_pos.y >= img_screen_pos.y && mouse_pos.y <= (img_screen_pos.y + size.y));    
-        if (mouse_is_over_image) {
-            HandleMousePanning(ctx.zoom_state, size, ctx.current_img_raw, ctx.base_img_raw, needs_pan_update);
-            if (needs_pan_update) {
-                updateViewportImage(ctx); 
-            }
-        }
-
-        RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, size, ctx.current_img_raw);
-
-        // Overlay Polar HUD
-        if (ctx.is_polarized)
+        // --- Single Viewport Mode ---
+        if (!ctx.current_img_ldr.empty() && ctx.texture)
         {
-            ImGui::SetNextWindowPos(ImVec2(img_screen_pos.x + 10, img_screen_pos.y + 10));
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+            float ar = (float)ctx.current_img_ldr.cols / ctx.current_img_ldr.rows;
+            ImVec2 size = avail;
+            if (avail.x / avail.y > ar) size.x = avail.y * ar; else size.y = avail.x / ar;
 
-            ImGui::PopStyleColor(2);
+            ImVec2 img_cursor_pos((avail.x - size.x) * 0.5f, (avail.y - size.y) * 0.5f);
+            ImGui::SetCursorPos(img_cursor_pos);
+            ImVec2 img_screen_pos = ImGui::GetCursorScreenPos();
+            
+            ImGui::Image((void*)(intptr_t)ctx.texture, size);
+
+            HandleZoomAndSelection(ctx.zoom_state, img_screen_pos, size, ctx.current_img_ldr, ctx.base_img_ldr, ctx.base_img_raw, ctx.colormap, ctx.needs_tonemap, ctx.needs_texture);
+            
+            bool needs_roi_update = false;
+            HandleScrollZoom(ctx.zoom_state, img_screen_pos, size, ctx.current_img_raw, ctx.base_img_raw, needs_roi_update);
+            
+            bool needs_pan_update = false;
+            ImVec2 mouse_pos = ImGui::GetMousePos();
+            bool mouse_is_over = (mouse_pos.x >= img_screen_pos.x && mouse_pos.x <= (img_screen_pos.x + size.x)) && (mouse_pos.y >= img_screen_pos.y && mouse_pos.y <= (img_screen_pos.y + size.y));    
+            if (mouse_is_over) {
+                HandleMousePanning(ctx.zoom_state, size, ctx.current_img_raw, ctx.base_img_raw, needs_pan_update);
+            }
+            if (needs_roi_update || needs_pan_update) updateViewportImage(ctx);
+
+            RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, size, ctx.current_img_raw);
+        }
+    } 
+    else 
+    {
+        // --- Split Grid Layout Mode ---
+        if (!ctx.polar_current_ldr[0].empty() && ctx.polar_textures[0])
+        {
+            float left_pane_w = avail.x * 0.65f - 4.0f;
+            float right_pane_w = avail.x * 0.35f - 4.0f;
+            
+            float deg_cell_w = left_pane_w / 2.0f - 4.0f;
+            float deg_cell_h = avail.y / 2.0f - 4.0f;
+            float analytic_cell_h = avail.y / 2.0f - 4.0f;
+
+            float ar = (float)ctx.polar_current_ldr[0].cols / ctx.polar_current_ldr[0].rows;
+            bool shared_roi_changed = false;
+            ImVec2 mouse_pos = ImGui::GetMousePos();
+
+            auto drawGridCell = [&](int idx, ImVec2 pos, ImVec2 cell_limits) {
+                ImGui::SetCursorPos(pos);
+                ImGui::BeginChild((std::string("cell_") + std::to_string(idx)).c_str(), cell_limits, true, ImGuiWindowFlags_NoScrollbar);
+                
+                ImVec2 view_size = cell_limits;
+                if (cell_limits.x / cell_limits.y > ar) view_size.x = cell_limits.y * ar; else view_size.y = cell_limits.x / ar;
+                
+                ImVec2 child_avail = ImGui::GetContentRegionAvail();
+                ImGui::SetCursorPos(ImVec2((child_avail.x - view_size.x) * 0.5f, (child_avail.y - view_size.y) * 0.5f));
+                
+                ImVec2 img_screen_pos = ImGui::GetCursorScreenPos();
+                ImGui::Image((void*)(intptr_t)ctx.polar_textures[idx], view_size);
+
+                ImVec2 text_pos(img_screen_pos.x + 12, img_screen_pos.y + 12);
+                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), 24.0f, ImVec2(text_pos.x - 1, text_pos.y), IM_COL32(0, 0, 0, 255), ctx.polar_names[idx].c_str());
+                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), 24.0f, ImVec2(text_pos.x + 1, text_pos.y), IM_COL32(0, 0, 0, 255), ctx.polar_names[idx].c_str());
+                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), 24.0f, text_pos, IM_COL32(0, 255, 0, 255), ctx.polar_names[idx].c_str());
+
+                bool mouse_over_cell = (mouse_pos.x >= img_screen_pos.x && mouse_pos.x <= (img_screen_pos.x + view_size.x)) &&
+                                       (mouse_pos.y >= img_screen_pos.y && mouse_pos.y <= (img_screen_pos.y + view_size.y));
+
+                if (mouse_over_cell) {
+                    bool internal_tonemap_flag = false;
+                    bool internal_texture_flag = false;
+                    
+                    HandleZoomAndSelection(ctx.zoom_state, img_screen_pos, view_size, ctx.polar_current_ldr[idx], ctx.polar_ldr_channels[idx], ctx.polar_raw_channels[idx], ctx.colormap, internal_tonemap_flag, internal_texture_flag);
+                    
+                    // 🚀 FIXED: Only compute minMaxLoc when right click is active to boost performance
+                    if ((internal_tonemap_flag || ctx.colormap.is_active) && (idx != 2 && idx != 5) && ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                        double min_val = 0.0, max_val = 1.0;
+                        
+                        // Downsample area to 256x256 max using INTER_NEAREST (unbelievably fast execution)
+                        cv::Mat small_roi;
+                        int target_w = std::min(256, ctx.polar_current_raw[idx].cols);
+                        int target_h = std::min(256, ctx.polar_current_raw[idx].rows);
+                        
+                        if (target_w > 0 && target_h > 0) {
+                            cv::resize(ctx.polar_current_raw[idx], small_roi, cv::Size(target_w, target_h), 0, 0, cv::INTER_NEAREST);
+                            cv::minMaxLoc(small_roi, &min_val, &max_val);
+                        } else {
+                            cv::minMaxLoc(ctx.polar_current_raw[idx], &min_val, &max_val);
+                        }
+                        
+                        ctx.colormap.is_active = true;
+                        ctx.needs_tonemap = true;
+                        shared_roi_changed = true;
+                    }
+
+                    bool cell_roi_update = false;
+                    HandleScrollZoom(ctx.zoom_state, img_screen_pos, view_size, ctx.polar_current_raw[idx], ctx.polar_raw_channels[idx], cell_roi_update);
+                    
+                    bool cell_pan_update = false;
+                    HandleMousePanning(ctx.zoom_state, view_size, ctx.polar_current_raw[idx], ctx.polar_raw_channels[idx], cell_pan_update);
+                    
+                    if (internal_tonemap_flag || internal_texture_flag || cell_roi_update || cell_pan_update) {
+                        shared_roi_changed = true;
+                    }
+                }
+
+                RenderPixelValuesOverlay(ctx.zoom_state, img_screen_pos, view_size, ctx.polar_current_raw[idx]);
+                ImGui::EndChild();
+            };
+
+            drawGridCell(0, ImVec2(4.0f, 4.0f), ImVec2(deg_cell_w, deg_cell_h));                                 
+            drawGridCell(1, ImVec2(4.0f + left_pane_w / 2.0f, 4.0f), ImVec2(deg_cell_w, deg_cell_h));            
+            drawGridCell(3, ImVec2(4.0f, 4.0f + avail.y / 2.0f), ImVec2(deg_cell_w, deg_cell_h));                
+            drawGridCell(4, ImVec2(4.0f + left_pane_w / 2.0f, 4.0f + avail.y / 2.0f), ImVec2(deg_cell_w, deg_cell_h)); 
+
+            drawGridCell(2, ImVec2(left_pane_w + 8.0f, 4.0f), ImVec2(right_pane_w, analytic_cell_h));                
+            drawGridCell(5, ImVec2(left_pane_w + 8.0f, 4.0f + avail.y / 2.0f), ImVec2(right_pane_w, analytic_cell_h)); 
+
+            if (shared_roi_changed || ctx.needs_tonemap) {
+                if (ctx.needs_tonemap) {
+                    updateGlobalTonemapCache(ctx);
+                    ctx.needs_tonemap = false;
+                }
+                updateViewportImage(ctx);
+            }
         }
     }
     ImGui::EndChild();
@@ -324,7 +430,7 @@ int main(int argc, char** argv)
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     #endif
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "REV Engine - HDR & Polarized Visualizer", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "REV Engine", NULL, NULL);
     if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); 
@@ -337,11 +443,9 @@ int main(int argc, char** argv)
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
-    // Initial Loading Sequence
     loadRawImage(ctx, 0);
     updateTexture(ctx);
 
-    // Main Render Loop
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -353,7 +457,6 @@ int main(int argc, char** argv)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Global Key Actions
         if (ImGui::IsKeyPressed(ImGuiKey_A, false))
         {
             ctx.resetToFactoryDefaults();
@@ -367,25 +470,16 @@ int main(int argc, char** argv)
 
         DrawCustomCursor();
         
-        // Navigation Wrapper
         auto navigationCallback = [&](int new_idx) { loadRawImage(ctx, new_idx); };
         HandleKeyboardNavigation(ctx.current_idx, ctx.images.size(), navigationCallback);
 
-        // Fullscreen Setup Window
         ImGui::SetNextWindowPos({0, 0});
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         ImGui::Begin("HDR Viewer", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-        // UI Modules
         renderControlPanel(ctx, window);
         ImGui::Separator();
 
-        // Evaluators & Pipelines Updates
-        if (ctx.needs_tonemap) {
-            updateGlobalTonemapCache(ctx);
-            updateViewportImage(ctx);
-            ctx.needs_tonemap = false;
-        }
         if (ctx.needs_texture) {
             updateTexture(ctx);
             ctx.needs_texture = false;
@@ -393,7 +487,7 @@ int main(int argc, char** argv)
 
         renderViewportAndInteractions(ctx);
 
-        ImGui::End(); // End Main Window
+        ImGui::End(); 
         ImGui::Render();
 
         int w, h;
@@ -406,11 +500,13 @@ int main(int argc, char** argv)
         glfwSwapBuffers(window);
     }
 
-    // Cleanup Pipeline
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    
     if (ctx.texture) glDeleteTextures(1, &ctx.texture);
+    for(auto tex : ctx.polar_textures) if(tex) glDeleteTextures(1, &tex);
+
     glfwDestroyWindow(window);
     glfwTerminate();
 
