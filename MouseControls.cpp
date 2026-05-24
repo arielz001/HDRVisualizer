@@ -285,10 +285,32 @@ void RenderPixelValuesOverlay(const ZoomState& zoom_state, const ImVec2& img_scr
                 draw_list->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), IM_COL32(255, 255, 255, 30), 0.0f, 0, 1.0f);
             }
 
-            cv::Vec3b pixel = current_img_ldr.at<cv::Vec3b>(r, c);
-            int b = pixel[0];
-            int g = pixel[1];
-            int r_val = pixel[2];
+            int b = 0, g = 0, r_val = 0;
+            int img_type = current_img_ldr.type();
+
+            if (img_type == CV_8UC3) {
+                cv::Vec3b pixel = current_img_ldr.at<cv::Vec3b>(r, c);
+                b = pixel[0]; g = pixel[1]; r_val = pixel[2];
+            } 
+            else if (img_type == CV_8UC4) { // Muy común en macOS
+                cv::Vec4b pixel = current_img_ldr.at<cv::Vec4b>(r, c);
+                b = pixel[0]; g = pixel[1]; r_val = pixel[2];
+            }
+            else if (img_type == CV_32FC3) { // Formato HDR/RAW típico
+                cv::Vec3f pixel = current_img_ldr.at<cv::Vec3f>(r, c);
+                // Si es RAW flotante (0.0 a 1.0), lo escalamos a 0-255 para el texto
+                b = std::clamp(static_cast<int>(pixel[0] * 255.0f), 0, 255);
+                g = std::clamp(static_cast<int>(pixel[1] * 255.0f), 0, 255);
+                r_val = std::clamp(static_cast<int>(pixel[2] * 255.0f), 0, 255);
+            }
+            else if (img_type == CV_8UC1) { // Escala de grises
+                uchar pixel = current_img_ldr.at<uchar>(r, c);
+                b = g = r_val = pixel; 
+            }
+            else {
+                // Si es un formato rarísimo (como 16 bits), ponemos color neutro para evitar morir
+                b = g = r_val = 128;
+            }
 
             char text_r[16]; char text_g[16]; char text_b[16];
             snprintf(text_r, sizeof(text_r), "R:%d", r_val);
