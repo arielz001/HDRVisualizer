@@ -304,7 +304,7 @@ int main(int argc, char** argv)
             ImGui::Image((void*)(intptr_t)texture, size);
 
             // ============================================================================
-            // 5.6. INTERACTION EVENT HANDLERS (RUNS IMMEDIATELY AFTER IMAGE RENDER)
+            // 5.6. INTERACTION EVENT HANDLERS
             // ============================================================================
             HandleZoomAndSelection(zoom_state, img_screen_pos, size, current_img_ldr, base_img_ldr, base_img_raw, colormap, needs_tonemap, needs_texture);
             if (needs_tonemap) {
@@ -330,10 +330,10 @@ int main(int argc, char** argv)
                 }
             }
 
-            RenderPixelValuesOverlay(zoom_state, img_screen_pos, size, current_img_ldr);
+            RenderPixelValuesOverlay(zoom_state, img_screen_pos, size, current_img_raw);
 
             // ============================================================================
-            // 5.7. OVERLAY HUD GENERATION (RENDERED LAST TO AVOID INTERACTION BLOCKED)
+            // 5.7. OVERLAY HUD GENERATION
             // ============================================================================
             if (is_polarized)
             {
