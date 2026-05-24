@@ -1,4 +1,4 @@
-# 🚀 rev(Research Engine Visualizer)
+# 🚀 rev (Research Engine Visualizer)
 
 **rev** is an interactive High Dynamic Range (HDR) and Polarized image viewer developed in **C++**. It utilizes **OpenGL** for hardware-accelerated rendering, **OpenCV** for robust image processing, and features a modern, clean graphical interface built with **Dear ImGui**. 
 
