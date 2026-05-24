@@ -1,6 +1,3 @@
-// ============================================================================
-// 1. LIBRARIES
-// ============================================================================
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -19,6 +16,8 @@
 #include "KeyboardControls.h"
 #include "Colormap.h"
 #include "Colorspace.h"
+#include "LoadLogo.h"
+
 
 // ============================================================================
 // 2. STRUCTURES AND GLOBAL STATE
@@ -71,14 +70,15 @@ struct AppContext
     }
 };
 
-// --- LISTA GLOBAL DINÁMICA (N imágenes) ---
+
 std::vector<AppContext> contexts;
+
 
 struct CrossSyncState {
     bool is_dragging = false;
     bool has_persistent_rect = false; 
-    int active_context_idx = -1; // Sabe en qué imagen estamos interactuando
-    int active_viewport_id = -1; // Sabe qué canal (si es polarizada) interactuamos
+    int active_context_idx = -1; 
+    int active_viewport_id = -1;
 
     cv::Point2f img_start_pixel = cv::Point2f(-1, -1);
     cv::Point2f img_end_pixel = cv::Point2f(-1, -1);
@@ -638,7 +638,7 @@ int main(int argc, char** argv)
     if (!glfwInit()) return -1;
 
     if (argc < 2) {
-        std::cout << "Usage: ./bin/rev <image1> [image2] [image3] ...\n";
+        std::cout << "Usage: ./bin/riv <image1> [image2] [image3] ...\n";
         return -1;
     }
 
@@ -663,10 +663,12 @@ int main(int argc, char** argv)
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     #endif
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "REV Engine - Workspace", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Research Image Viewer", NULL, NULL);
     if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); 
+
+    set_window_icon(window);
 
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
@@ -684,6 +686,7 @@ int main(int argc, char** argv)
         }
     }
 
+    load_logo_texture();
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
