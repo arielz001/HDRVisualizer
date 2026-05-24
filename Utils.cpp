@@ -34,7 +34,7 @@ std::vector<std::string> getImages(const std::string& folder)
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
-            ext == ".exr" || ext == ".hdr")
+            ext == ".exr" || ext == ".hdr" || ext == ".raw")
             imgs.push_back(p);
     }
     std::sort(imgs.begin(), imgs.end());

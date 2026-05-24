@@ -9,8 +9,10 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
+#include <vector>
+#include <cmath>
 
-// Project modules
+#include "Polarized.h"
 #include "Utils.h"
 #include "Tonemapper.h"
 #include "MouseControls.h"
@@ -23,9 +25,6 @@
 // ============================================================================
 int main(int argc, char** argv)
 {
-    // ------------------------------------------------------------------------
-    // 2.1. Argument Validation and Image File Parsing
-    // ------------------------------------------------------------------------
     if (!glfwInit()) return -1;
 
     if (argc < 2)
@@ -38,7 +37,6 @@ int main(int argc, char** argv)
     std::vector<std::string> images;
     int idx = 0;
 
-    // Detect if input path is a folder directory or a standalone image file
     if (std::filesystem::is_directory(input))
         images = getImages(input);
     else
@@ -46,9 +44,6 @@ int main(int argc, char** argv)
 
     if (images.empty()) return -1;
 
-    // ------------------------------------------------------------------------
-    // 2.2. Graphics Context Setup (GLFW & OpenGL Core Profile)
-    // ------------------------------------------------------------------------
     #ifdef __APPLE__
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -58,79 +53,76 @@ int main(int argc, char** argv)
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "HDR Viewer", NULL, NULL);
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable V-Sync
+    glfwSwapInterval(1); 
 
-    // ------------------------------------------------------------------------
-    // 2.3. Graphical User Interface Context Initialization (Dear ImGui)
-    // ------------------------------------------------------------------------
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 150");
 
-    // Hide native OS cursor to draw the Custom Precision Crosshair instead
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     // ============================================================================
-    // 3. APPLICATION STATE VARIABLES (OpenCV Matrices & Framework Objects)
+    // 3. APPLICATION STATE VARIABLES
     // ============================================================================
-    cv::Mat base_img_raw;    // Full-resolution original float HDR image matrix
-    cv::Mat base_img_ldr;    // Full-resolution mapped and processed 8-bit image matrix
-    cv::Mat current_img_ldr; // Active cropped region (Zoom window) in 8-bit format
-    cv::Mat current_img_raw; // Active cropped region (Zoom window) in raw float format
-    GLuint texture = 0;      // OpenGL hardware texture identifier handle
+    cv::Mat base_img_raw;    
+    cv::Mat base_img_ldr;    
+    cv::Mat current_img_ldr; 
+    cv::Mat current_img_raw; 
+    GLuint texture = 0;      
 
-    // Core architectural instances
     ZoomState zoom_state;
     Colormap colormap;
     Colorspace colorspace;
-    int mode = 1; // 1: Reinhard, 2: Drago, 3: Mantiuk
+    int mode = 1;              
+    bool is_polarized = false; 
     
-    // Factory default parameters setup for Tonemapping operator sliders
-    float r_gamma = 1.0f, intensity = 0.0f, light_adapt = 0.5f, color_adapt = 0.0f; // Reinhard
-    float d_gamma = 1.0f, d_saturation = 1.0f, d_bias = 0.85f;                     // Drago
-    float m_gamma = 1.0f, m_scale = 0.7f, m_saturation = 1.0f;                     // Mantiuk
+    float r_gamma = 1.0f, intensity = 0.0f, light_adapt = 0.5f, color_adapt = 0.0f; 
+    float d_gamma = 1.0f, d_saturation = 1.0f, d_bias = 0.85f;                     
+    float m_gamma = 1.0f, m_scale = 0.7f, m_saturation = 1.0f;                     
     
-    // Performance flag modifiers to optimize backend pipelines
-    bool needs_tonemap = false; // Triggers full re-calculation if HDR global settings shift
-    bool needs_texture = false; // Triggers rapid GPU texture buffer updates during Zoom/Pan
+    bool needs_tonemap = false; 
+    bool needs_texture = false; 
         
     // ============================================================================
-    // 4. CONTROL UTILITIES (Data Pipeline Framework)
+    // 4. CONTROL UTILITIES
     // ============================================================================
-    
-    // 4.1: Compute dynamic mapping or localized AutoRange operations
-    auto doTonemap = [&]()
+    auto updateGlobalTonemapCache = [&]()
     {
         if (base_img_raw.empty()) return;
 
-        // Apply localized normalization scale if a custom Colormap range bounds are active
+        cv::Mat full_canvas_ldr;
         if (colormap.is_active) {
             cv::Mat normalized = colormap.apply(base_img_raw);
-            cv::Mat final_8bit;
-            normalized.convertTo(final_8bit, CV_8UC3, 255.0);
-            base_img_ldr = final_8bit;
+            normalized.convertTo(full_canvas_ldr, CV_8UC3, 255.0);
         } 
-        // Otherwise, process global high dynamic range conversion via selected operator
         else {
-            base_img_ldr = applyTonemap(base_img_raw, mode,
+            full_canvas_ldr = applyTonemap(base_img_raw, mode,
                                     r_gamma, intensity, light_adapt, color_adapt,
                                     d_gamma, d_saturation, d_bias,
                                     m_gamma, m_scale, m_saturation);
         }
 
-        // Run space profile rendering transitions
-        colorspace.apply(base_img_ldr);
-
-        // Keep current region safely bounded and isolate sub-matrix selections
-        zoom_state.current_roi &= cv::Rect(0, 0, base_img_ldr.cols, base_img_ldr.rows);
-        current_img_ldr = base_img_ldr(zoom_state.current_roi).clone();
-        current_img_raw = base_img_raw(zoom_state.current_roi).clone();
-        needs_texture = true; 
+        colorspace.apply(full_canvas_ldr);
+        base_img_ldr = full_canvas_ldr; 
     };
 
-    // 4.2: Upload modified OpenCV matrices directly to GL GPU texture spaces
+    auto updateViewportImage = [&]()
+    {
+        if (base_img_ldr.empty()) return;
+
+        zoom_state.current_roi &= cv::Rect(0, 0, base_img_raw.cols, base_img_raw.rows);
+        if (zoom_state.current_roi.width <= 0 || zoom_state.current_roi.height <= 0) {
+            zoom_state.current_roi = cv::Rect(0, 0, base_img_raw.cols, base_img_raw.rows);
+        }
+
+        current_img_ldr = base_img_ldr(zoom_state.current_roi).clone();
+        current_img_raw = base_img_raw(zoom_state.current_roi).clone();
+
+        needs_texture = true;
+    };
+
     auto updateTexture = [&]()
     {
         if (current_img_ldr.empty()) return;
@@ -138,20 +130,78 @@ int main(int argc, char** argv)
         texture = matToTexture(current_img_ldr);
     };
 
-    // 4.3: Low-level file reader allocation and viewport canvas reset
     auto loadRawImage = [&](int i)
     {
-        base_img_raw = cv::imread(images[i], cv::IMREAD_UNCHANGED);
+        std::string file_path = images[i];
+        std::string ext = std::filesystem::path(file_path).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+        is_polarized = false; 
+
+        if (ext == ".raw" || ext == ".bin" || ext == ".dat") {
+            is_polarized = true;
+        }
+
+        if (is_polarized) 
+        {
+            cv::Mat mosaic = dePolarize(file_path); 
+            
+            if (!mosaic.empty()) {
+                mosaic.convertTo(mosaic, CV_32FC3, 1.0 / 255.0);
+                
+                int w = mosaic.cols / 2;
+                int h = mosaic.rows / 2;
+                std::vector<cv::Mat> bgr_channels = {
+                    mosaic(cv::Rect(0, 0, w, h)).clone(), 
+                    mosaic(cv::Rect(w, 0, w, h)).clone(), 
+                    mosaic(cv::Rect(0, h, w, h)).clone(), 
+                    mosaic(cv::Rect(w, h, w, h)).clone()  
+                };
+
+                PolarizationResult polar = computePolarization(bgr_channels);
+                
+                cv::Mat dolp_8u, dolp_rgb;
+                polar.DoLP.convertTo(dolp_8u, CV_8UC1, 255.0);
+                cv::applyColorMap(dolp_8u, dolp_rgb, cv::COLORMAP_JET);
+                cv::Mat dolp_32f;
+                dolp_rgb.convertTo(dolp_32f, CV_32FC3, 1.0 / 255.0);
+
+                cv::Mat aolp_norm = (polar.AoLP + (M_PI / 2.0f)) / M_PI; 
+                cv::Mat aolp_8u, aolp_rgb;
+                aolp_norm.convertTo(aolp_8u, CV_8UC1, 255.0);
+                cv::applyColorMap(aolp_8u, aolp_rgb, cv::COLORMAP_HSV);
+                cv::Mat aolp_32f;
+                aolp_rgb.convertTo(aolp_32f, CV_32FC3, 1.0 / 255.0);
+
+                cv::resize(aolp_32f, aolp_32f, cv::Size(w, h));
+                cv::resize(dolp_32f, dolp_32f, cv::Size(w, h));
+
+                cv::Mat right_block;
+                cv::vconcat(aolp_32f, dolp_32f, right_block);
+
+                base_img_raw = cv::Mat();
+                cv::hconcat(mosaic, right_block, base_img_raw);
+            }
+        } 
+        else 
+        {
+            base_img_raw = cv::imread(file_path, cv::IMREAD_UNCHANGED);
+            if (!base_img_raw.empty() && base_img_raw.depth() != CV_32F) {
+                double max_val = (base_img_raw.depth() == CV_16U) ? 65535.0 : 255.0;
+                base_img_raw.convertTo(base_img_raw, CV_32FC3, 1.0 / max_val);
+            }
+        }
+
         if(!base_img_raw.empty()) {
             zoom_state.Reset(base_img_raw.cols, base_img_raw.rows); 
             colormap.reset(); 
+            updateGlobalTonemapCache();
         }
-        needs_tonemap = true;
+        needs_tonemap = false; 
+        updateViewportImage(); 
     };
 
-    // Bootstrapping the initial presentation canvas frame states
     loadRawImage(0);
-    doTonemap();
     updateTexture();
 
     // ============================================================================
@@ -159,9 +209,6 @@ int main(int argc, char** argv)
     // ============================================================================
     while (!glfwWindowShouldClose(window))
     {
-        // ------------------------------------------------------------------------
-        // 5.1. Window Messages and Polling Events
-        // ------------------------------------------------------------------------
         glfwPollEvents();
 
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
@@ -169,54 +216,33 @@ int main(int argc, char** argv)
             glfwSetWindowShouldClose(window, true);
         }
 
-        // Initialize display frame context structures for Dear ImGui backend builders
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // ------------------------------------------------------------------------
-        // 5.2. Global Keyboard Input Controllers
-        // ------------------------------------------------------------------------
-        
-        // GLOBAL HARD RESET SHORTCUT (Key: A)
-        // Destroys and clears all parameters, zooms, colormaps and sets defaults
         if (ImGui::IsKeyPressed(ImGuiKey_A, false))
         {
-            // Reset numerical bounds back to factory default states
             r_gamma = 1.0f; intensity = 0.0f; light_adapt = 0.5f; color_adapt = 0.0f;
             d_gamma = 1.0f; d_saturation = 1.0f; d_bias = 0.85f;
             m_gamma = 1.0f; m_scale = 0.7f; m_saturation = 1.0f;
-            
-            // Revert fallback active operator to Reinhard and reset color transformations
-            mode = 1; 
-            colorspace.reset();
-
-            // Refresh raw dimensions data, reset BBox crops and clear colormaps
+            mode = 1; is_polarized = false; colorspace.reset();
             loadRawImage(idx);
         }
 
-        // Paint custom crosshair position tracker and compute directory slide indexes
         DrawCustomCursor();
         HandleKeyboardNavigation(idx, images.size(), loadRawImage);
 
-        // ------------------------------------------------------------------------
-        // 5.3. Graphical User Interface Layout Presentation
-        // ------------------------------------------------------------------------
         ImGui::SetNextWindowPos({0, 0});
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-
         ImGui::Begin("HDR Viewer", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("Tonemapping");
-
-        // Operator mode buttons
         if (ImGui::Button("Reinhard")) { mode = 1; needs_tonemap = true; } ImGui::SameLine();
         if (ImGui::Button("Drago"))    { mode = 2; needs_tonemap = true; } ImGui::SameLine();
         if (ImGui::Button("Mantiuk"))  { mode = 3; needs_tonemap = true; }
 
         ImGui::Separator();
 
-        // Render dynamic sliders based on current mathematical operation rules
         if (mode == 1) {
             if (ImGui::SliderFloat("Gamma", &r_gamma, 0.1f, 3.0f))           needs_tonemap = true;
             if (ImGui::SliderFloat("Intensity", &intensity, -8.0f, 8.0f))    needs_tonemap = true;
@@ -232,10 +258,11 @@ int main(int argc, char** argv)
             if (ImGui::SliderFloat("Saturation", &m_saturation, 0.0f, 2.0f)) needs_tonemap = true;
         }
 
-        // Display basic zoom recovery trigger
-        DrawResetZoomButton(window, current_img_ldr, base_img_ldr, zoom_state, needs_texture);
+        if (ImGui::Button("Reset Zoom")) {
+            zoom_state.Reset(base_img_raw.cols, base_img_raw.rows);
+            updateViewportImage();
+        }
 
-        // Render dynamic colormap cancellation button if AutoRange scaling is working
         if (colormap.is_active) {
             ImGui::SameLine();
             if (ImGui::Button("Reset Range") || glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
@@ -244,12 +271,10 @@ int main(int argc, char** argv)
             }
         }
 
-        // ------------------------------------------------------------------------
-        // 5.4. State Sequence Resolver
-        // ------------------------------------------------------------------------
         if (needs_tonemap)
         {
-            doTonemap();
+            updateGlobalTonemapCache();
+            updateViewportImage();
             needs_tonemap = false;
         }
         
@@ -261,70 +286,79 @@ int main(int argc, char** argv)
 
         ImGui::Separator();
         
-        // ------------------------------------------------------------------------
-        // 5.5. Viewport Canvas Rendering Space
-        // ------------------------------------------------------------------------
         ImGui::BeginChild("img", ImVec2(0, 0), true);
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
         if (!current_img_ldr.empty() && texture)
         {
-            // Secure pixel ratio matching setups on fluid panel resizing
             float ar = (float)current_img_ldr.cols / current_img_ldr.rows;
             ImVec2 size = avail;
 
             if (avail.x / avail.y > ar) size.x = avail.y * ar;
             else size.y = avail.x / ar;
 
-            // Center image layout vector tracking updates
             ImVec2 img_cursor_pos((avail.x - size.x) * 0.5f, (avail.y - size.y) * 0.5f);
             ImGui::SetCursorPos(img_cursor_pos);
             
             ImVec2 img_screen_pos = ImGui::GetCursorScreenPos();
-            
-            // Render finalized GL texture resource directly on ImGui window context
             ImGui::Image((void*)(intptr_t)texture, size);
 
-            // ------------------------------------------------------------------------
-            // 5.6. High-Precision Mouse Interaction Event Handlers
-            // ------------------------------------------------------------------------
-            
-            // 1. Right-Click Drag: Selection BBox + Floating Context Actions Menu
+            // ============================================================================
+            // 5.6. INTERACTION EVENT HANDLERS (RUNS IMMEDIATELY AFTER IMAGE RENDER)
+            // ============================================================================
             HandleZoomAndSelection(zoom_state, img_screen_pos, size, current_img_ldr, base_img_ldr, base_img_raw, colormap, needs_tonemap, needs_texture);
-            
-            // 2. Mouse Scroll Wheel: Dynamic Focus-Preserved Cursor Magnification
-            bool needs_roi_tonemap = false;
-            HandleScrollZoom(zoom_state, img_screen_pos, size, current_img_raw, base_img_raw, needs_roi_tonemap);
-            if (needs_roi_tonemap) {
-                // Instantly sync 8-bit slice coordinates without re-triggering full CPU tone computation
-                current_img_ldr = base_img_ldr(zoom_state.current_roi).clone();
-                needs_texture = true;
+            if (needs_tonemap) {
+                updateGlobalTonemapCache();
+                updateViewportImage();
+                needs_tonemap = false;
             }
 
-            // 3. Left-Click Drag: Viewport Coordinate Canvas Panning Control
+            bool needs_roi_update = false;
+            HandleScrollZoom(zoom_state, img_screen_pos, size, current_img_raw, base_img_raw, needs_roi_update);
+            if (needs_roi_update) {
+                updateViewportImage();
+            }
+
             bool needs_pan_update = false;
-            HandleMousePanning(zoom_state, size, current_img_raw, base_img_raw, needs_pan_update);
-            if (needs_pan_update) {
-                current_img_ldr = base_img_ldr(zoom_state.current_roi).clone();
-                needs_texture = true;
+            ImVec2 mouse_pos = ImGui::GetMousePos();
+            bool mouse_is_over_image = (mouse_pos.x >= img_screen_pos.x && mouse_pos.x <= (img_screen_pos.x + size.x)) &&
+                                        (mouse_pos.y >= img_screen_pos.y && mouse_pos.y <= (img_screen_pos.y + size.y));    
+            if (mouse_is_over_image) {
+                HandleMousePanning(zoom_state, size, current_img_raw, base_img_raw, needs_pan_update);
+                if (needs_pan_update) {
+                    updateViewportImage(); 
+                }
             }
 
-            // 4. Pixel Sub-Grid Matrix: Draw custom readable color arrays over closeups
             RenderPixelValuesOverlay(zoom_state, img_screen_pos, size, current_img_ldr);
+
+            // ============================================================================
+            // 5.7. OVERLAY HUD GENERATION (RENDERED LAST TO AVOID INTERACTION BLOCKED)
+            // ============================================================================
+            if (is_polarized)
+            {
+                ImGui::SetNextWindowPos(ImVec2(img_screen_pos.x + 10, img_screen_pos.y + 10));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+
+                ImGui::BeginChild("PolarHUD", ImVec2(400, 55), false, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "OPTIMIZED 6-PANEL MONOLITHIC RENDERING ENGINE");
+                ImGui::Text("Selection box works natively over all unified grid spaces.");
+                ImGui::EndChild();
+
+                ImGui::PopStyleColor(2);
+            }
         }
 
-        // Sequential profile key toggle handling shortcuts
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             colorspace.cycle();
-            needs_tonemap = true;
+            updateGlobalTonemapCache();
+            updateViewportImage();
         }
 
         ImGui::EndChild();
         ImGui::End();
 
-        // ------------------------------------------------------------------------
-        // 5.7. Hardware Buffer Swap Execution
-        // ------------------------------------------------------------------------
         ImGui::Render();
 
         int w, h;
@@ -337,9 +371,6 @@ int main(int argc, char** argv)
         glfwSwapBuffers(window);
     }
 
-    // ============================================================================
-    // 6. PIPELINE DE-ALLOCATION AND TERMINATION
-    // ============================================================================
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
