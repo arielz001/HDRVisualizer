@@ -291,7 +291,8 @@ void renderControlPanel(GLFWwindow* window)
         }
     }
 
-    if (ImGui::Button("Reset Zoom")) {
+
+    if (ImGui::Button("Reset Zoom") || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
         for(auto& c : contexts) {
             int w = c.is_polarized ? c.polar_raw_channels[0].cols : c.base_img_raw.cols;
             int h = c.is_polarized ? c.polar_raw_channels[0].rows : c.base_img_raw.rows;
