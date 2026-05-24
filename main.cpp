@@ -16,7 +16,7 @@
 #include "KeyboardControls.h"
 #include "Colormap.h"
 #include "Colorspace.h"
-#include "LoadLogo.h"
+// #include "LoadLogo.h"
 
 
 // ============================================================================
@@ -668,7 +668,7 @@ int main(int argc, char** argv)
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); 
 
-    set_window_icon(window);
+    // set_window_icon(window);
 
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
@@ -686,7 +686,7 @@ int main(int argc, char** argv)
         }
     }
 
-    load_logo_texture();
+    // load_logo_texture();
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
