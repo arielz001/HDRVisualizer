@@ -25,12 +25,11 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 # ImGui
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 
-# Source files (AQUÍ AGREGAMOS LOS NUEVOS ARCHIVOS)
+# Source files
 set(SOURCES
     main.cpp
     Utils.cpp
     Tonemapper.cpp
-    # Controls.cpp
     MouseControls.cpp 
     KeyboardControls.cpp
     Colormap.cpp
@@ -76,14 +75,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     endif()
 endif()
 
-# HDR SUPPORT
-# sudo apt install libopenexr-dev
-
-# IMGUI
-# sudo apt install libglfw3-dev libopencv-dev
-
-install(TARGETS riv DESTINATION bin)
-
 # ============================================================================
 # INSTALLATION AND OS ICONS (USING ONLY logo.png)
 # ============================================================================
@@ -117,10 +108,13 @@ elseif(APPLE)
     )
     target_sources(riv PRIVATE ${MACOS_ICON})
     install(TARGETS riv BUNDLE DESTINATION .)
+    
     add_custom_command(TARGET riv POST_BUILD 
         COMMAND touch ${CMAKE_BINARY_DIR}/bin/riv.app
         COMMAND /usr/bin/xattr -c ${CMAKE_BINARY_DIR}/bin/riv.app 2>/dev/null || true
     )
+    # EL SYMLINK AHORA VIVE SOLO EN MACOS
+    add_custom_command(TARGET riv POST_BUILD 
+        COMMAND ${CMAKE_COMMAND} -E create_symlink riv.app/Contents/MacOS/riv ${CMAKE_BINARY_DIR}/bin/riv
+    )
 endif()
-
-add_custom_command(TARGET riv POST_BUILD COMMAND ${CMAKE_COMMAND} -E create_symlink riv.app/Contents/MacOS/riv ${CMAKE_BINARY_DIR}/bin/riv)
