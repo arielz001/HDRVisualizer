@@ -8,8 +8,10 @@
 #include <filesystem>
 #include <algorithm>
 #include <vector>
+#include <memory>
 #include <cmath>
 
+#include "3DViewer.h"
 #include "Polarized.h"
 #include "Utils.h"
 #include "Tonemapper.h"
@@ -40,9 +42,11 @@ struct AppContext
 
     std::vector<std::string> images;
     int current_idx = 0;
+    bool is_3d_model = false;
     bool is_polarized = false; 
     bool is_video = false;
     VideoPlayer video;
+    std::shared_ptr<Viewer3D> model_viewer;
     bool needs_tonemap = false; 
     bool needs_texture = false; 
 
@@ -68,9 +72,11 @@ struct AppContext
         d_gamma = 1.0f; d_saturation = 1.0f; d_bias = 0.85f;
         m_gamma = 1.0f; m_scale = 0.7f; m_saturation = 1.0f;
         mode = 1; 
+        is_3d_model = false;
         is_polarized = false; 
         is_video = false;
         video.release();
+        model_viewer.reset();
         colorspace.reset();
     }
 };
@@ -100,13 +106,18 @@ struct CrossSyncState {
     }
 } g_sync;
 
+bool is3DModelFile(const std::string& ext)
+{
+    return ext == ".obj" || ext == ".ply" || ext == ".pcd";
+}
+
 
 // ============================================================================
 // 3. PIPELINE FUNCTIONS
 // ============================================================================
 void updateGlobalTonemapCache(AppContext& ctx)
 {
-    if (ctx.base_img_raw.empty() && (!ctx.is_polarized || ctx.polar_raw_channels[0].empty())) return;
+    if (ctx.is_3d_model || (ctx.base_img_raw.empty() && (!ctx.is_polarized || ctx.polar_raw_channels[0].empty()))) return;
 
     if (ctx.is_polarized) {
         for (int i = 0; i < 6; ++i) {
@@ -152,6 +163,8 @@ void updateGlobalTonemapCache(AppContext& ctx)
 
 void updateViewportImage(AppContext& ctx)
 {
+    if (ctx.is_3d_model) return;
+
     if (ctx.is_polarized) {
         if (ctx.polar_ldr_channels[0].empty()) return;
         
@@ -181,6 +194,8 @@ void updateViewportImage(AppContext& ctx)
 
 void updateTexture(AppContext& ctx)
 {
+    if (ctx.is_3d_model) return;
+
     if (ctx.is_polarized) {
         for (int i = 0; i < 6; ++i) {
             if (ctx.polar_current_ldr[i].empty()) continue;
@@ -201,8 +216,41 @@ void loadRawImage(AppContext& ctx, int i)
     std::string ext = std::filesystem::path(file_path).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
+    ctx.is_3d_model = is3DModelFile(ext);
     ctx.is_polarized = (ext == ".raw" || ext == ".bin" || ext == ".dat");
     ctx.is_video = (ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov");
+
+    if (ctx.is_3d_model) 
+    {
+        ctx.is_polarized = false;
+        ctx.is_video = false;
+        ctx.base_img_raw.release();
+        ctx.base_img_ldr.release();
+        ctx.current_img_raw.release();
+        ctx.current_img_ldr.release();
+
+        if (ctx.texture) {
+            glDeleteTextures(1, &ctx.texture);
+            ctx.texture = 0;
+        }
+
+        for (auto& tex : ctx.polar_textures) {
+            if (tex) {
+                glDeleteTextures(1, &tex);
+                tex = 0;
+            }
+        }
+
+        ctx.model_viewer = ctx.model_viewer ? ctx.model_viewer : std::make_shared<Viewer3D>();
+        if (ctx.model_viewer->LoadModel(file_path)) {
+            ctx.model_viewer->ResetCamera();
+        }
+        ctx.needs_tonemap = false;
+        ctx.needs_texture = false;
+        return;
+    }
+
+    ctx.model_viewer.reset();
 
     if (ctx.is_video) 
     {
@@ -275,6 +323,18 @@ void renderControlPanel(GLFWwindow* window)
     // Usamos el estado del primer contexto para reflejarlo en la UI
     AppContext& ref_ctx = contexts[0];
 
+    if (ref_ctx.is_3d_model) {
+        ImGui::Text("3D Model Viewer");
+        if (ref_ctx.model_viewer && ImGui::Button("Reset Camera")) {
+            for (auto& c : contexts) {
+                if (c.is_3d_model && c.model_viewer) {
+                    c.model_viewer->ResetCamera();
+                }
+            }
+        }
+        return;
+    }
+
     ImGui::Text("Tonemapping");
     if (ImGui::Button("Reinhard")) { for(auto& c : contexts) { c.mode = 1; c.needs_tonemap = true; } } ImGui::SameLine();
     if (ImGui::Button("Drago"))    { for(auto& c : contexts) { c.mode = 2; c.needs_tonemap = true; } } ImGui::SameLine();
@@ -308,10 +368,10 @@ void renderControlPanel(GLFWwindow* window)
     }
 
     if (ref_ctx.is_video && ref_ctx.video.isLoaded()) {
-    if (ImGui::Button(ref_ctx.video.isPlaying() ? "Pause" : "Play") || ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-        bool new_state = !ref_ctx.video.isPlaying();
-        for (auto& c : contexts) if (c.is_video) c.video.setPlaying(new_state);
-    }
+        if (ImGui::Button(ref_ctx.video.isPlaying() ? "Pause" : "Play") || ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+            bool new_state = !ref_ctx.video.isPlaying();
+            for (auto& c : contexts) if (c.is_video) c.video.setPlaying(new_state);
+        }
         ImGui::SameLine();
         
         float progress = ref_ctx.video.getProgress();
@@ -631,6 +691,22 @@ void renderViewportAndInteractions()
 
             ImGui::PushID(i);
             ImGui::BeginChild("viewport_pane", ImVec2(cell_w, cell_h), true);
+
+            if (contexts[i].is_3d_model) {
+                if (contexts[i].model_viewer) {
+                    contexts[i].model_viewer->RenderView(ImGui::GetContentRegionAvail());
+                } else {
+                    ImGui::TextUnformatted("No 3D model loaded");
+                }
+
+                ImGui::EndChild();
+                ImGui::PopID();
+
+                if ((i + 1) % cols != 0 && (i + 1) < n) {
+                    ImGui::SameLine();
+                }
+                continue;
+            }
             
             if (!contexts[i].is_polarized) 
             {
@@ -765,6 +841,7 @@ int main(int argc, char** argv)
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             for(auto& c : contexts) {
+                if (c.is_3d_model) continue;
                 c.colorspace.cycle();
                 updateGlobalTonemapCache(c);
                 updateViewportImage(c);

@@ -28,6 +28,7 @@ set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 # Source files
 set(SOURCES
     main.cpp
+    3DViewer.cpp
     Utils.cpp
     Tonemapper.cpp
     MouseControls.cpp 

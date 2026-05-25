@@ -45,11 +45,28 @@ The viewer preserves the global dynamic range of the original HDR image while ap
 
 The viewer also supports video playback.
 
+![demo](./assets/video.gif)
+
+---
+
+### 3D Visualizer
+
+The viewer also supports 3D models visualization. The following formats are supported:
+
+* .obj
+* .ply
+* .pcd
+
 <p align="center">
-  <img src="assets/videoplayback.png" alt="Video playback" width="500"/>
+  <img src="assets/3dviewer.png" alt="3D viewer" width="500"/>
 </p>
 
 
+---
+
+### Video playback
+
+The viewer also supports video playback.
 
 ## 🎮 Controls & Interface Guide
 
@@ -155,6 +172,12 @@ Open a single polarized image:
 
 ```bash
 riv ./imgs/image.raw
+```
+
+Open a 3D model:
+
+```bash
+riv ./models/bunny.obj
 ```
 
 Open a folder and browse through all images with ← / →:

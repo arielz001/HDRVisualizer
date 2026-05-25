@@ -36,6 +36,7 @@ std::vector<std::string> getImages(const std::string& folder)
         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
             ext == ".exr" || ext == ".hdr" || ext == ".raw" || 
             ext == ".avi" || ext == ".mp4" || ext == ".mkv" ||
+             ext == ".obj" || ext == ".ply" || ext == ".pcd" ||
              ext == ".mov")
             imgs.push_back(p);
     }
