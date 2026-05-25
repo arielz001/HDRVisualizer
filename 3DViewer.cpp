@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <unordered_map>
+#include <filesystem>
+#include <opencv2/opencv.hpp>
 
 #if defined(__APPLE__)
 #define GL_SILENCE_DEPRECATION
@@ -19,10 +22,12 @@ const char* vertex_shader_source = R"(
     layout (location = 0) in vec3 aPos;
     layout (location = 1) in vec3 aColor;
     layout (location = 2) in vec3 aNormal;
+    layout (location = 3) in vec2 aTexCoord;
 
     out vec3 FragPos;
     out vec3 VertColor;
     out vec3 Normal;
+    out vec2 TexCoord;
 
     uniform mat4 model;
     uniform mat4 view;
@@ -32,6 +37,7 @@ const char* vertex_shader_source = R"(
         FragPos = vec3(model * vec4(aPos, 1.0));
         Normal = mat3(transpose(inverse(model))) * aNormal;
         VertColor = aColor;
+        TexCoord = aTexCoord;
         gl_Position = projection * view * vec4(FragPos, 1.0);
     }
 )";
@@ -43,9 +49,17 @@ const char* fragment_shader_source = R"(
     in vec3 FragPos;
     in vec3 VertColor;
     in vec3 Normal;
+    in vec2 TexCoord;
+
+    uniform sampler2D diffuseTex;
+    uniform bool useTexture;
 
     void main() {
-        FragColor = vec4(VertColor, 1.0);
+        vec3 baseColor = VertColor;
+        if (useTexture) {
+            baseColor = texture(diffuseTex, TexCoord).rgb;
+        }
+        FragColor = vec4(baseColor, 1.0);
     }
 )";
 
@@ -88,6 +102,7 @@ Viewer3D::~Viewer3D() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
     if (shader_program) glDeleteProgram(shader_program);
+    if (diffuse_texture) glDeleteTextures(1, &diffuse_texture);
     if (fbo) glDeleteFramebuffers(1, &fbo);
     if (texture_id) glDeleteTextures(1, &texture_id);
     if (rbo) glDeleteRenderbuffers(1, &rbo);
@@ -116,6 +131,11 @@ void Viewer3D::InitGL() {
 
 bool Viewer3D::LoadModel(const std::string& filepath) {
     vertices.clear();
+    has_texture = false;
+    if (diffuse_texture) {
+        glDeleteTextures(1, &diffuse_texture);
+        diffuse_texture = 0;
+    }
     std::ifstream file(filepath, std::ios::binary);
     if (!file.is_open()) return false;
 
@@ -132,13 +152,84 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
         is_point_cloud = false;
         std::vector<float> temp_positions;
         std::vector<float> temp_colors;
+        std::vector<float> temp_texcoords;
+        bool has_texcoords = false;
         std::string line;
+
+        std::filesystem::path obj_path(filepath);
+        std::filesystem::path obj_dir = obj_path.parent_path();
+        std::unordered_map<std::string, std::string> material_textures;
+        std::string current_mtl;
+
+        auto loadTexture = [&](const std::string& tex_path) -> unsigned int {
+            cv::Mat img = cv::imread(tex_path, cv::IMREAD_UNCHANGED);
+            if (img.empty()) return 0;
+
+            GLenum format = GL_RGB;
+            if (img.channels() == 4) {
+                cv::cvtColor(img, img, cv::COLOR_BGRA2RGBA);
+                format = GL_RGBA;
+            } else if (img.channels() == 3) {
+                cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+                format = GL_RGB;
+            } else if (img.channels() == 1) {
+                cv::cvtColor(img, img, cv::COLOR_GRAY2RGB);
+                format = GL_RGB;
+            }
+
+            unsigned int tex = 0;
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+            glTexImage2D(GL_TEXTURE_2D, 0, format, img.cols, img.rows, 0, format, GL_UNSIGNED_BYTE, img.data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            return tex;
+        };
         
         while (std::getline(file, line)) {
             std::istringstream ss(line);
             std::string prefix;
             ss >> prefix;
-            if (prefix == "v") {
+            if (prefix == "mtllib") {
+                std::string mtl_file;
+                ss >> mtl_file;
+                if (!mtl_file.empty()) {
+                    std::filesystem::path mtl_path = obj_dir / mtl_file;
+                    std::ifstream mtl(mtl_path.string());
+                    if (mtl.is_open()) {
+                        std::string mtl_line;
+                        std::string mtl_name;
+                        while (std::getline(mtl, mtl_line)) {
+                            std::istringstream mss(mtl_line);
+                            std::string key;
+                            mss >> key;
+                            if (key == "newmtl") {
+                                mss >> mtl_name;
+                            } else if (key == "map_Kd" && !mtl_name.empty()) {
+                                std::string tex_rel;
+                                mss >> tex_rel;
+                                if (!tex_rel.empty()) {
+                                    std::filesystem::path tex_path = obj_dir / tex_rel;
+                                    material_textures[mtl_name] = tex_path.string();
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (prefix == "usemtl") {
+                ss >> current_mtl;
+            } else if (prefix == "vt") {
+                float u = 0.0f, v = 0.0f;
+                ss >> u >> v;
+                temp_texcoords.push_back(u);
+                temp_texcoords.push_back(1.0f - v);
+                has_texcoords = true;
+            } else if (prefix == "v") {
                 float x, y, z, r=1.0f, g=1.0f, b=1.0f;
                 ss >> x >> y >> z >> r >> g >> b;
                 temp_positions.push_back(x);
@@ -155,10 +246,27 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
             } else if (prefix == "f") {
                 std::string v1, v2, v3;
                 ss >> v1 >> v2 >> v3;
-                auto parse_idx = [](const std::string& t) {
-                    return std::stoi(t.substr(0, t.find('/'))) - 1;
+                auto parse_face = [](const std::string& t, int& v_idx, int& vt_idx) {
+                    v_idx = -1; vt_idx = -1;
+                    size_t s1 = t.find('/');
+                    if (s1 == std::string::npos) {
+                        v_idx = std::stoi(t) - 1;
+                        return;
+                    }
+                    v_idx = std::stoi(t.substr(0, s1)) - 1;
+                    size_t s2 = t.find('/', s1 + 1);
+                    if (s2 == std::string::npos) {
+                        if (s1 + 1 < t.size()) vt_idx = std::stoi(t.substr(s1 + 1)) - 1;
+                        return;
+                    }
+                    if (s2 > s1 + 1) vt_idx = std::stoi(t.substr(s1 + 1, s2 - s1 - 1)) - 1;
                 };
-                int idxs[3] = { parse_idx(v1), parse_idx(v2), parse_idx(v3) };
+                int v_idxs[3] = { -1, -1, -1 };
+                int vt_idxs[3] = { -1, -1, -1 };
+                parse_face(v1, v_idxs[0], vt_idxs[0]);
+                parse_face(v2, v_idxs[1], vt_idxs[1]);
+                parse_face(v3, v_idxs[2], vt_idxs[2]);
+                int idxs[3] = { v_idxs[0], v_idxs[1], v_idxs[2] };
                 
                 float p1[3] = {temp_positions[idxs[0]*3], temp_positions[idxs[0]*3+1], temp_positions[idxs[0]*3+2]};
                 float p2[3] = {temp_positions[idxs[1]*3], temp_positions[idxs[1]*3+1], temp_positions[idxs[1]*3+2]};
@@ -181,9 +289,25 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
                     v.color[1] = temp_colors[idxs[i]*3+1];
                     v.color[2] = temp_colors[idxs[i]*3+2];
                     v.normal[0] = nx; v.normal[1] = ny; v.normal[2] = nz;
+                    v.texcoord[0] = 0.0f; v.texcoord[1] = 0.0f;
+                    if (has_texcoords && vt_idxs[i] >= 0) {
+                        v.texcoord[0] = temp_texcoords[vt_idxs[i]*2];
+                        v.texcoord[1] = temp_texcoords[vt_idxs[i]*2+1];
+                    }
                     vertices.push_back(v);
                 }
+
+                if (!current_mtl.empty() && diffuse_texture == 0) {
+                    auto it = material_textures.find(current_mtl);
+                    if (it != material_textures.end()) {
+                        diffuse_texture = loadTexture(it->second);
+                        has_texture = (diffuse_texture != 0) && has_texcoords;
+                    }
+                }
             }
+        }
+        if (!has_texcoords) {
+            has_texture = false;
         }
     } 
     else if (ext == "ply") {
@@ -248,6 +372,7 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
                 vtx.color[1] = temp_colors[idxs[i]*3+1];
                 vtx.color[2] = temp_colors[idxs[i]*3+2];
                 vtx.normal[0] = nx; vtx.normal[1] = ny; vtx.normal[2] = nz;
+                vtx.texcoord[0] = 0.0f; vtx.texcoord[1] = 0.0f;
                 vertices.push_back(vtx);
             }
         };
@@ -352,6 +477,7 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
                     vtx.position[0] = x; vtx.position[1] = y; vtx.position[2] = z;
                     vtx.color[0] = r; vtx.color[1] = g; vtx.color[2] = b;
                     vtx.normal[0] = 0; vtx.normal[1] = 1; vtx.normal[2] = 0;
+                    vtx.texcoord[0] = 0.0f; vtx.texcoord[1] = 0.0f;
                     vertices.push_back(vtx);
                 }
             }
@@ -415,6 +541,7 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
                     vtx.position[0] = x; vtx.position[1] = y; vtx.position[2] = z;
                     vtx.color[0] = r; vtx.color[1] = g; vtx.color[2] = b;
                     vtx.normal[0] = 0; vtx.normal[1] = 1; vtx.normal[2] = 0;
+                    vtx.texcoord[0] = 0.0f; vtx.texcoord[1] = 0.0f;
                     vertices.push_back(vtx);
                 }
             }
@@ -475,6 +602,7 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
 
                 v.color[0] = r_val / 255.0f; v.color[1] = g_val / 255.0f; v.color[2] = b_val / 255.0f;
                 v.normal[0] = 0; v.normal[1] = 1; v.normal[2] = 0; 
+                v.texcoord[0] = 0.0f; v.texcoord[1] = 0.0f;
                 vertices.push_back(v);
 
                 sum_x += x; sum_y += y; sum_z += z;
@@ -515,6 +643,8 @@ void Viewer3D::SetupBuffers() {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex3D), (void*)offsetof(Vertex3D, normal));
     glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex3D), (void*)offsetof(Vertex3D, texcoord));
+    glEnableVertexAttribArray(3);
 
     glBindVertexArray(0);
 }
@@ -547,25 +677,25 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             camera.is_rotating = true;
         }
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             camera.is_panning = true;
         }
     }
 
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) camera.is_rotating = false;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle)) camera.is_panning = false;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) camera.is_panning = false;
 
     if (camera.is_rotating) {
         camera.azimuth -= io.MouseDelta.x * 0.005f;
         camera.polar -= io.MouseDelta.y * 0.005f;
-        camera.polar = std::clamp(camera.polar, 0.005f, 3.14159f - 0.005f);
+        camera.polar = std::clamp(camera.polar, 0.05f, 3.14159f - 0.05f);
     }
 
     if (camera.is_panning) {
         float factor = camera.radius * 0.002f;
         camera.target[0] -= io.MouseDelta.x * factor * std::cos(camera.azimuth);
-        camera.target[2] += io.MouseDelta.x * factor * std::sin(camera.azimuth);
-        camera.target[1] += io.MouseDelta.y * factor;
+        camera.target[1] -= io.MouseDelta.x * factor * std::sin(camera.azimuth);
+        camera.target[2] += io.MouseDelta.y * factor;
     }
 }
 
@@ -605,16 +735,11 @@ void Viewer3D::RenderView(ImVec2 view_size) {
     if (vao != 0 && !vertices.empty()) {
         glUseProgram(shader_program);
 
-        float camX = camera.target[0] + camera.radius * std::sin(camera.polar) * std::sin(camera.azimuth);
-        float camY = camera.target[1] + camera.radius * std::cos(camera.polar);
-        float camZ = camera.target[2] + camera.radius * std::sin(camera.polar) * std::cos(camera.azimuth);
+        float camX = camera.target[0] + camera.radius * std::sin(camera.polar) * std::cos(camera.azimuth);
+        float camY = camera.target[1] + camera.radius * std::sin(camera.polar) * std::sin(camera.azimuth);
+        float camZ = camera.target[2] + camera.radius * std::cos(camera.polar);
 
-        float up[3] = { 0.0f, 1.0f, 0.0f };
-        if (camera.polar < 0.01f || camera.polar > 3.13f) {
-            up[0] = -std::sin(camera.azimuth);
-            up[1] = 0.0f;
-            up[2] = -std::cos(camera.azimuth);
-        }
+        float up[3] = { 0.0f, 0.0f, 1.0f };
 
         float aspect = static_cast<float>(w) / static_cast<float>(h);
         float orthoSize = camera.radius;
@@ -636,6 +761,15 @@ void Viewer3D::RenderView(ImVec2 view_size) {
         int viewLoc = glGetUniformLocation(shader_program, "view");
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, view);
 
+        int useTexLoc = glGetUniformLocation(shader_program, "useTexture");
+        int texLoc = glGetUniformLocation(shader_program, "diffuseTex");
+        glUniform1i(useTexLoc, has_texture ? 1 : 0);
+        if (has_texture && diffuse_texture != 0) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, diffuse_texture);
+            glUniform1i(texLoc, 0);
+        }
+
         glBindVertexArray(vao);
         
         if (is_point_cloud) {
@@ -653,15 +787,20 @@ void Viewer3D::RenderView(ImVec2 view_size) {
 
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glLineWidth(1.5f);
+                glUniform1i(useTexLoc, 0);
                 glDisableVertexAttribArray(1); 
                 glVertexAttrib3f(1, 0.05f, 0.05f, 0.05f);
                 glDrawArrays(GL_TRIANGLES, 0, (int)vertices.size());
                 glEnableVertexAttribArray(1);
+                glUniform1i(useTexLoc, has_texture ? 1 : 0);
                 glDisable(GL_POLYGON_OFFSET_LINE);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
         }
         glBindVertexArray(0);
+        if (has_texture && diffuse_texture != 0) {
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

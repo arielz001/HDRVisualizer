@@ -320,7 +320,6 @@ void renderControlPanel(GLFWwindow* window)
 {
     if (contexts.empty()) return;
     
-    // Usamos el estado del primer contexto para reflejarlo en la UI
     AppContext& ref_ctx = contexts[0];
 
     if (ref_ctx.is_3d_model) {
@@ -811,7 +810,7 @@ int main(int argc, char** argv)
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-    // INICIALIZAR IMÁGENES Y SINCRONIZAR ZOOM INICIAL
+    // initialize images and synchronize zoom initial
     for (int i = 0; i < contexts.size(); ++i) {
         loadRawImage(contexts[i], 0);
         updateTexture(contexts[i]);
@@ -832,7 +831,7 @@ int main(int argc, char** argv)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // ATADURAS DE TECLAS (Atacan a toda la lista)
+        // keydown actions 
         if (ImGui::IsKeyPressed(ImGuiKey_A, false)) {
             for(auto& c : contexts) {
                 c.resetToFactoryDefaults();
@@ -878,6 +877,21 @@ int main(int argc, char** argv)
         }
 
         renderViewportAndInteractions();
+
+        ImGui::Separator();
+        ImGui::BeginChild("status_bar", ImVec2(0, 26), true);
+        std::string current_path;
+        if (!contexts.empty() && !contexts[0].images.empty()) {
+            current_path = contexts[0].images[contexts[0].current_idx];
+        } else {
+            current_path = "(no file loaded)";
+        }
+        ImGui::TextUnformatted("Path:");
+        ImGui::SameLine();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(current_path.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
 
         ImGui::End(); 
         ImGui::Render();

@@ -58,7 +58,7 @@ The viewer also supports 3D models visualization. The following formats are supp
 * .pcd
 
 <p align="center">
-  <img src="assets/3dviewer.png" alt="3D viewer" width="500"/>
+  <img src="assets/zebra.png" alt="3D model visualization" width="500"/>
 </p>
 
 
