@@ -213,9 +213,16 @@ Some versions of `dv-processing` may require **clang-18**.
 Install it with:
 
 ```bash
+wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 18
+```
+
+if this not works, try to install it with:
+
+```bash
 curl -fsSL https://hexmos.com/ipm-install | bash
 ipm i clang-18
 ```
+
 
 During installation, press **Enter** to accept the default options.
 
@@ -242,30 +249,7 @@ sudo make install
 
 # Quick Start
 
-### Standard build
 
-```bash
-git clone https://github.com/arielz001/riv.git
-cd riv
-git submodule update --init --recursive
-
-mkdir build
-cd build
-
-cmake ..
-make
-```
-
----
-
-### Build with `.aedat4` support
-
-After installing `dv-processing` and `clang-18`:
-
-```bash
-CC=clang-18 CXX=clang++-18 cmake ..
-make
-```
 ## Usage (if you installed with sudo make install, else use ./build/bin/riv)
 
 Run **riv** by passing an image file or a directory containing images:
