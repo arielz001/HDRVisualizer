@@ -150,7 +150,7 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
     double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
     size_t total_points = 0;
 
-    if (ext == "obj") {
+    if (ext == "obj"  ) {
         is_point_cloud = false;
         std::vector<float> temp_positions;
         std::vector<float> temp_colors;
@@ -613,6 +613,143 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
                 model_min[0] = std::min(model_min[0], x); model_max[0] = std::max(model_max[0], x);
                 model_min[1] = std::min(model_min[1], y); model_max[1] = std::max(model_max[1], y);
                 model_min[2] = std::min(model_min[2], z); model_max[2] = std::max(model_max[2], z);
+            }
+        }
+    }
+
+    else if (ext == "stl") {
+        is_point_cloud = false;
+        
+        // Determinar si es ASCII o Binario inspeccionando los primeros bytes
+        std::string header_check;
+        header_check.resize(5);
+        file.read(&header_check[0], 5);
+        
+        // Volver al inicio del archivo para procesarlo completo
+        file.seekg(0, std::ios::beg);
+        
+        // Si empieza con "solid" suele ser ASCII (a menos que sea un header binario tramposo, 
+        // pero validaremos más adelante)
+        bool is_ascii = (header_check == "solid");
+        
+        if (is_ascii) {
+            std::string line;
+            float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+            std::vector<Vertex3D> face_vertices;
+            
+            while (std::getline(file, line)) {
+                std::istringstream ss(line);
+                std::string token;
+                ss >> token;
+                
+                if (token == "facet") {
+                    std::string word;
+                    ss >> word; // leer "normal"
+                    ss >> nx >> ny >> nz;
+                    face_vertices.clear();
+                }
+                else if (token == "vertex") {
+                    float x, y, z;
+                    ss >> x >> y >> z;
+                    
+                    Vertex3D v;
+                    v.position[0] = x; v.position[1] = y; v.position[2] = z;
+                    // Color por defecto gris claro/blanco para STL
+                    v.color[0] = 0.8f;  v.color[1] = 0.8f;  v.color[2] = 0.8f;
+                    v.texcoord[0] = 0.0f; v.texcoord[1] = 0.0f;
+                    face_vertices.push_back(v);
+                    
+                    sum_x += x; sum_y += y; sum_z += z;
+                    total_points++;
+                    
+                    model_min[0] = std::min(model_min[0], x); model_max[0] = std::max(model_max[0], x);
+                    model_min[1] = std::min(model_min[1], y); model_max[1] = std::max(model_max[1], y);
+                    model_min[2] = std::min(model_min[2], z); model_max[2] = std::max(model_max[2], z);
+                }
+                else if (token == "endfacet") {
+                    // Si el archivo no provee normales válidas (0,0,0), las calculamos por cruzado
+                    if (nx == 0.0f && ny == 0.0f && nz == 0.0f && face_vertices.size() == 3) {
+                        float u[3] = { face_vertices[1].position[0] - face_vertices[0].position[0],
+                                       face_vertices[1].position[1] - face_vertices[0].position[1],
+                                       face_vertices[1].position[2] - face_vertices[0].position[2] };
+                        float v[3] = { face_vertices[2].position[0] - face_vertices[0].position[0],
+                                       face_vertices[2].position[1] - face_vertices[0].position[1],
+                                       face_vertices[2].position[2] - face_vertices[0].position[2] };
+                        nx = u[1] * v[2] - u[2] * v[1];
+                        ny = u[2] * v[0] - u[0] * v[2];
+                        nz = u[0] * v[1] - u[1] * v[0];
+                        float len = std::sqrt(nx*nx + ny*ny + nz*nz);
+                        if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+                    }
+                    
+                    for (auto& vtx : face_vertices) {
+                        vtx.normal[0] = nx; vtx.normal[1] = ny; vtx.normal[2] = nz;
+                        vertices.push_back(vtx);
+                    }
+                }
+            }
+            
+            // Falso positivo: si era un archivo binario cuyo header empezaba con "solid" 
+            // no habrá cargado vértices. Forzamos lectura binaria en ese escenario.
+            if (vertices.empty()) {
+                is_ascii = false;
+                file.clear();
+                file.seekg(0, std::ios::beg);
+            }
+        }
+        
+        if (!is_ascii) {
+            // Saltarse las 80 bytes de cabecera binaria
+            file.seekg(80, std::ios::beg);
+            
+            uint32_t num_triangles = 0;
+            file.read(reinterpret_cast<char*>(&num_triangles), sizeof(num_triangles));
+            
+            vertices.reserve(num_triangles * 3);
+            
+            for (uint32_t i = 0; i < num_triangles; ++i) {
+                if (file.eof()) break;
+                
+                float normal[3];
+                float v1[3], v2[3], v3[3];
+                uint16_t attribute_byte_count = 0;
+                
+                file.read(reinterpret_cast<char*>(normal), sizeof(normal));
+                file.read(reinterpret_cast<char*>(v1), sizeof(v1));
+                file.read(reinterpret_cast<char*>(v2), sizeof(v2));
+                file.read(reinterpret_cast<char*>(v3), sizeof(v3));
+                file.read(reinterpret_cast<char*>(&attribute_byte_count), sizeof(attribute_byte_count));
+                
+                // Si el archivo binario no trae normales calculadas, las generamos automáticamente
+                if (normal[0] == 0.0f && normal[1] == 0.0f && normal[2] == 0.0f) {
+                    float u[3] = { v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2] };
+                    float v[3] = { v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2] };
+                    normal[0] = u[1] * v[2] - u[2] * v[1];
+                    normal[1] = u[2] * v[0] - u[0] * v[2];
+                    normal[2] = u[0] * v[1] - u[1] * v[0];
+                    float len = std::sqrt(normal[0]*normal[0] + normal[1]*normal[1] + normal[2]*normal[2]);
+                    if (len > 0.0f) { normal[0] /= len; normal[1] /= len; normal[2] /= len; }
+                }
+                
+                float* v_array[3] = { v1, v2, v3 };
+                for (int j = 0; j < 3; ++j) {
+                    Vertex3D vtx;
+                    vtx.position[0] = v_array[j][0];
+                    vtx.position[1] = v_array[j][1];
+                    vtx.position[2] = v_array[j][2];
+                    
+                    vtx.color[0] = 0.8f; vtx.color[1] = 0.8f; vtx.color[2] = 0.8f; // Gris base
+                    vtx.normal[0] = normal[0]; vtx.normal[1] = normal[1]; vtx.normal[2] = normal[2];
+                    vtx.texcoord[0] = 0.0f; vtx.texcoord[1] = 0.0f;
+                    vertices.push_back(vtx);
+                    
+                    sum_x += v_array[j][0]; sum_y += v_array[j][1]; sum_z += v_array[j][2];
+                    total_points++;
+                    
+                    model_min[0] = std::min(model_min[0], v_array[j][0]); model_max[0] = std::max(model_max[0], v_array[j][0]);
+                    model_min[1] = std::min(model_min[1], v_array[j][1]); model_max[1] = std::max(model_max[1], v_array[j][1]);
+                    model_min[2] = std::min(model_min[2], v_array[j][2]); model_max[2] = std::max(model_max[2], v_array[j][2]);
+                }
             }
         }
     }

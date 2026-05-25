@@ -126,7 +126,7 @@ struct CrossSyncState {
 
 bool is3DModelFile(const std::string& ext)
 {
-    return ext == ".obj" || ext == ".ply" || ext == ".pcd";
+    return ext == ".obj" || ext == ".ply" || ext == ".pcd" || ext == ".stl";
 }
 
 

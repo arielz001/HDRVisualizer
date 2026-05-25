@@ -10,7 +10,6 @@ AedatReader::~AedatReader() {
     Close();
 }
 
-// Constructor por movimiento
 AedatReader::AedatReader(AedatReader&& other) noexcept {
     reader = std::move(other.reader);
     file_path = std::move(other.file_path);
@@ -21,7 +20,6 @@ AedatReader::AedatReader(AedatReader&& other) noexcept {
     other.is_open = false;
 }
 
-// Asignación por movimiento
 AedatReader& AedatReader::operator=(AedatReader&& other) noexcept {
     if (this != &other) {
         Close();
@@ -68,7 +66,6 @@ void AedatReader::Close() {
 bool AedatReader::ReadNextFrame(cv::Mat& frame, int accumulation_mode, int slider_value) {
     if (!is_open || !reader || !reader->isRunning()) return false;
 
-    // 1. Alimentar el almacén interno desde el archivo si le faltan eventos
     while (accumulated_events.size() < static_cast<size_t>(slider_value) && reader->isRunning()) {
         auto batch = reader->getNextEventBatch();
         if (!batch || batch->isEmpty()) {
@@ -88,9 +85,6 @@ bool AedatReader::ReadNextFrame(cv::Mat& frame, int accumulation_mode, int slide
 
     size_t events_to_consume = 0;
 
-    // ============================================================================
-    // MODO 0: CANTIDAD FIJA DE EVENTOS
-    // ============================================================================
     if (accumulation_mode == 0) {
         events_to_consume = std::min(accumulated_events.size(), static_cast<size_t>(slider_value));
 
@@ -101,9 +95,6 @@ bool AedatReader::ReadNextFrame(cv::Mat& frame, int accumulation_mode, int slide
             }
         }
     } 
-    // ============================================================================
-    // MODO 1: VENTANA DE TIEMPO REAL (MICROSEGUNDOS)
-    // ============================================================================
     else {
         int64_t start_t = accumulated_events.getLowestTime();
         
@@ -124,7 +115,6 @@ bool AedatReader::ReadNextFrame(cv::Mat& frame, int accumulation_mode, int slide
         }
     }
 
-    // 2. Rebanar el búfer eliminando lo consumido
     if (events_to_consume > 0) {
         accumulated_events = accumulated_events.slice(static_cast<int64_t>(events_to_consume));
     }
