@@ -1,7 +1,6 @@
 #pragma once
 #include <opencv2/opencv.hpp>
 
-// Aplica el algoritmo de tonemapping seleccionado
 cv::Mat applyTonemap(const cv::Mat& in,
                      int mode,
                      float r_gamma, float intensity, float light_adapt, float color_adapt,

@@ -642,31 +642,20 @@ void Viewer3D::RenderView(ImVec2 view_size) {
             glPointSize(2.0f);
             glDrawArrays(GL_POINTS, 0, (int)vertices.size());
         } else {
-            // PRIMER PASO: Renderizar el objeto sólido normalmente con sus colores originales
+            // rendering
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glDrawArrays(GL_TRIANGLES, 0, (int)vertices.size());
 
-            // SEGUNDO PASO: Si está activo el Wireframe, pintamos las aristas oscuras encima
+            // draw wireframe
             if (show_wireframe) {
-                // Habilitamos offset de polígonos para empujar las aristas al frente y evitar el Z-fighting
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
 
-                // Cambiamos a modo líneas (Aristas)
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                
-                // Grosor de las aristas (ajústalo si las quieres más o menos gruesas)
                 glLineWidth(1.5f);
-
-                // TRUCO DE COLOR SEGURO: Deshabilitamos el array de color de vértices temporalmente
-                // y le inyectamos un color estático (Negro/Gris muy oscuro {0.05f, 0.05f, 0.05f})
                 glDisableVertexAttribArray(1); 
                 glVertexAttrib3f(1, 0.05f, 0.05f, 0.05f);
-
-                // Dibujamos las líneas encima del modelo sólido
                 glDrawArrays(GL_TRIANGLES, 0, (int)vertices.size());
-
-                // Restauramos el estado original de OpenGL para el siguiente renderizado
                 glEnableVertexAttribArray(1);
                 glDisable(GL_POLYGON_OFFSET_LINE);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
