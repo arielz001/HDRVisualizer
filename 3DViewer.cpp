@@ -10,10 +10,12 @@
 #include <opencv2/opencv.hpp>
 
 #if defined(__APPLE__)
-#define GL_SILENCE_DEPRECATION
-#include <OpenGL/gl3.h>
+    #define GL_SILENCE_DEPRECATION
+    #include <OpenGL/gl3.h>
 #else
-#include <GL/gl.h>
+    #define GL_GLEXT_PROTOTYPES 1
+    #include <GL/gl.h>
+    #include <GL/glext.h>
 #endif
 
 // --- GLSL SHADERS SOURCE ---
@@ -628,6 +630,13 @@ bool Viewer3D::LoadModel(const std::string& filepath) {
     ResetCamera();
     return !vertices.empty();
 }
+static bool g_link_viewers = false;
+static float g_shared_target[3] = {0.0f, 0.0f, 0.0f};
+static float g_shared_radius = 5.0f;
+static float g_shared_azimuth = 0.785f;
+static float g_shared_polar = 1.2f;
+static float g_shared_pan_x = 0.0f; 
+static float g_shared_pan_y = 0.0f; 
 
 void Viewer3D::SetupBuffers() {
     if (vao == 0) glGenVertexArrays(1, &vao);
@@ -648,12 +657,6 @@ void Viewer3D::SetupBuffers() {
 
     glBindVertexArray(0);
 }
-// --- VARIABLES ESTÁTICAS DE ARCHIVO PARA INTERCONEXIÓN (LINK VIEWERS) ---
-static bool g_link_viewers = false;
-static float g_shared_target[3] = {0.0f, 0.0f, 0.0f};
-static float g_shared_radius = 5.0f;
-static float g_shared_azimuth = 0.785f;
-static float g_shared_polar = 1.2f;
 
 void Viewer3D::ResetCamera() {
     float dx = model_max[0] - model_min[0];
@@ -665,8 +668,9 @@ void Viewer3D::ResetCamera() {
     
     camera.azimuth = 0.785f; 
     camera.polar = 1.2f;     
+    camera.pan_x = 0.0f;
+    camera.pan_y = 0.0f;
 
-    // Si están vinculados, propaga el reset como estado maestro inicial
     if (g_link_viewers) {
         g_shared_target[0] = camera.target[0];
         g_shared_target[1] = camera.target[1];
@@ -674,6 +678,8 @@ void Viewer3D::ResetCamera() {
         g_shared_radius = camera.radius;
         g_shared_azimuth = camera.azimuth;
         g_shared_polar = camera.polar;
+        g_shared_pan_x = camera.pan_x; 
+        g_shared_pan_y = camera.pan_y;
     }
 }
 
@@ -681,12 +687,10 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
     ImGuiIO& io = ImGui::GetIO();
     bool is_view_hovered = ImGui::IsItemHovered();
 
-    // Evaluar si esta ventana específica está recibiendo interacción activa del usuario
     bool standard_interact = (camera.is_rotating || camera.is_panning);
     bool wheel_interact = (is_view_hovered && io.MouseWheel != 0.0f);
     bool is_actively_controlling = standard_interact || wheel_interact;
 
-    // Si Link Viewers está activo y nadie está tocando ESTA cámara, hereda el estado global
     if (g_link_viewers && !is_actively_controlling) {
         camera.target[0] = g_shared_target[0];
         camera.target[1] = g_shared_target[1];
@@ -694,6 +698,8 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
         camera.radius = g_shared_radius;
         camera.azimuth = g_shared_azimuth;
         camera.polar = g_shared_polar;
+        camera.pan_x = g_shared_pan_x;
+        camera.pan_y = g_shared_pan_y;
     }
 
     if (is_view_hovered) {
@@ -722,14 +728,13 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
         camera.polar = std::clamp(camera.polar, 0.05f, 3.14159f - 0.05f);
     }
 
+    // ¡CORREGIDO!: El paneo ahora acumula desplazamiento en espacio de pantalla (2D)
     if (camera.is_panning) {
         float factor = camera.radius * 0.002f;
-        camera.target[0] -= io.MouseDelta.x * factor * std::cos(camera.azimuth);
-        camera.target[1] -= io.MouseDelta.x * factor * std::sin(camera.azimuth);
-        camera.target[2] += io.MouseDelta.y * factor;
+        camera.pan_x += io.MouseDelta.x * factor;
+        camera.pan_y -= io.MouseDelta.y * factor; 
     }
 
-    // Si ESTA cámara fue la que mutó por interacción, publica los datos para las demás
     if (g_link_viewers && (is_actively_controlling || ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
         g_shared_target[0] = camera.target[0];
         g_shared_target[1] = camera.target[1];
@@ -737,6 +742,8 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
         g_shared_radius = camera.radius;
         g_shared_azimuth = camera.azimuth;
         g_shared_polar = camera.polar;
+        g_shared_pan_x = camera.pan_x;
+        g_shared_pan_y = camera.pan_y;
     }
 }
 
@@ -776,11 +783,32 @@ void Viewer3D::RenderView(ImVec2 view_size) {
     if (vao != 0 && !vertices.empty()) {
         glUseProgram(shader_program);
 
+        // 1. Posición esférica base respecto al centro real
         float camX = camera.target[0] + camera.radius * std::sin(camera.polar) * std::cos(camera.azimuth);
         float camY = camera.target[1] + camera.radius * std::sin(camera.polar) * std::sin(camera.azimuth);
         float camZ = camera.target[2] + camera.radius * std::cos(camera.polar);
 
         float up[3] = { 0.0f, 0.0f, 1.0f };
+
+        float rx = -std::sin(camera.azimuth);
+        float ry =  std::cos(camera.azimuth);
+        float rz =  0.0f;
+
+        float ux = -std::cos(camera.azimuth) * std::cos(camera.polar);
+        float uy = -std::sin(camera.azimuth) * std::cos(camera.polar);
+        float uz =  std::sin(camera.polar);
+
+        float eye[3] = {
+            camX - camera.pan_x * rx - camera.pan_y * ux,
+            camY - camera.pan_x * ry - camera.pan_y * uy,
+            camZ - camera.pan_x * rz - camera.pan_y * uz
+        };
+
+        float target_panned[3] = {
+            camera.target[0] - camera.pan_x * rx - camera.pan_y * ux,
+            camera.target[1] - camera.pan_x * ry - camera.pan_y * uy,
+            camera.target[2] - camera.pan_x * rz - camera.pan_y * uz
+        };
 
         float aspect = static_cast<float>(w) / static_cast<float>(h);
         float orthoSize = camera.radius;
@@ -796,8 +824,7 @@ void Viewer3D::RenderView(ImVec2 view_size) {
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model);
 
         float view[16];
-        float eye[3] = { camX, camY, camZ };
-        LookAtMat(view, eye, camera.target, up);
+        LookAtMat(view, eye, target_panned, up);
         
         int viewLoc = glGetUniformLocation(shader_program, "view");
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, view);
@@ -851,22 +878,21 @@ void Viewer3D::RenderView(ImVec2 view_size) {
     
     UpdateCamera(view_size);
 
-    // --- HUD FLOTANTE SUPERIOR DENTRO DE CADA VIEWPORT ---
     ImGui::SetCursorScreenPos(ImVec2(overlay_anchor.x + 10, overlay_anchor.y + 10));
     
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.6f));
     ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
     
-    // Checkbox nativo que muta la bandera estática compartida por todos los visores
     if (ImGui::Checkbox("##LinkToggle", &g_link_viewers)) {
         if (g_link_viewers) {
-            // Al activarse forzadamente, este visor inicializa el canal compartido
             g_shared_target[0] = camera.target[0];
             g_shared_target[1] = camera.target[1];
             g_shared_target[2] = camera.target[2];
             g_shared_radius = camera.radius;
             g_shared_azimuth = camera.azimuth;
             g_shared_polar = camera.polar;
+            g_shared_pan_x = camera.pan_x; 
+            g_shared_pan_y = camera.pan_y;
         }
     }
     ImGui::SameLine();

@@ -35,7 +35,7 @@ Raw polarization mosaics are automatically decoded into a synchronized 6-panel l
 
 The viewer preserves the global dynamic range of the original HDR image while applying real-time tonemapping for display. Zooming or panning does not affect exposure, brightness, or contrast, allowing accurate inspection of the original scene radiance.
 
-<p align="center">
+<p align="left">
   <img src="assets/hdr.png" alt="HDR visualization with tonemapping" width="500"/>
 </p>
 
@@ -86,7 +86,8 @@ The viewer also supports video playback.
 | `S` | **Cycle Color Spaces** | Instantly toggles and transitions the active color space rendering properties. |
 | `Q` | **Exit App** | Instantly closes the visualizer window safely. |
 | `←` / `→` | **File Navigation** | Switches to the previous or next image available in the loaded directory sequence. |
-| `SPACE` | **File Navigation** | Only works in video playback mode. Toggles between playing and paused states.
+| `SPACE` | **Play/Pause* | Only works in video playback mode. Toggles between playing and paused states.
+| `F` | **Faces (3D)** | Toggles between wireframe and solid rendering modes.
 ---
 
 ## 🎛️ Contextual Actions & Parameters

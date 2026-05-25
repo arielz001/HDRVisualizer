@@ -20,6 +20,8 @@ struct Camera3D {
     
     bool is_rotating = false;
     bool is_panning = false;
+    float pan_x = 0.0f;
+    float pan_y = 0.0f;
 };
 
 class Viewer3D {
