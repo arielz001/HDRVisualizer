@@ -775,51 +775,52 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // CARGA DE RUTAS EN LOS CONTEXTOS
     for (int i = 1; i < argc; ++i) {
         std::string input = argv[i];
         AppContext ctx;
-        if (std::filesystem::is_directory(input)) {
+
+        if (std::filesystem::is_directory(input))
             ctx.images = getImages(input);
-        } else {
+        else
             ctx.images.push_back(input);
-        }
+
         contexts.push_back(ctx);
     }
 
     if (contexts.empty()) return -1;
 
-    #ifdef __APPLE__
+#ifdef __APPLE__
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    #endif
+#endif
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Research Image Viewer", NULL, NULL);
-    if (!window) { glfwTerminate(); return -1; }
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); 
+    if (!window) {
+        glfwTerminate();
+        return -1;
+    }
 
-    // set_window_icon(window);
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
 
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 150");
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-    // initialize images and synchronize zoom initial
     for (int i = 0; i < contexts.size(); ++i) {
         loadRawImage(contexts[i], 0);
         updateTexture(contexts[i]);
-        if (i > 0) {
+
+        if (i > 0)
             contexts[i].zoom_state.current_roi = contexts[0].zoom_state.current_roi;
-        }
     }
 
-    // load_logo_texture();
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -831,15 +832,15 @@ int main(int argc, char** argv)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // keydown actions 
         if (ImGui::IsKeyPressed(ImGuiKey_A, false)) {
-            for(auto& c : contexts) {
+            for (auto& c : contexts) {
                 c.resetToFactoryDefaults();
                 loadRawImage(c, c.current_idx);
             }
         }
+
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
-            for(auto& c : contexts) {
+            for (auto& c : contexts) {
                 if (c.is_3d_model) continue;
                 c.colorspace.cycle();
                 updateGlobalTonemapCache(c);
@@ -847,14 +848,18 @@ int main(int argc, char** argv)
             }
         }
 
-        auto navigationCallback = [&](int new_idx) { 
-            for(auto& c : contexts) loadRawImage(c, new_idx); 
+        auto navigationCallback = [&](int new_idx) {
+            for (auto& c : contexts)
+                loadRawImage(c, new_idx);
         };
-        if(!contexts.empty()) {
-            HandleKeyboardNavigation(contexts[0].current_idx, contexts[0].images.size(), navigationCallback);
-        }
 
-        // UPDATE VIDEO PLAYBACK
+        if (!contexts.empty())
+            HandleKeyboardNavigation(
+                contexts[0].current_idx,
+                contexts[0].images.size(),
+                navigationCallback
+            );
+
         for (auto& c : contexts) {
             if (c.is_video) {
                 cv::Mat frame;
@@ -865,41 +870,66 @@ int main(int argc, char** argv)
             }
         }
 
-        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("HDR Viewer", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+        ImGui::Begin(
+            "HDR Viewer",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove
+        );
 
         renderControlPanel(window);
         ImGui::Separator();
 
         for (auto& c : contexts) {
-            if (c.needs_texture) { updateTexture(c); c.needs_texture = false; }
+            if (c.needs_texture) {
+                updateTexture(c);
+                c.needs_texture = false;
+            }
         }
 
         renderViewportAndInteractions();
 
-        ImGui::Separator();
-        ImGui::BeginChild("status_bar", ImVec2(0, 26), true);
-        std::string current_path;
-        if (!contexts.empty() && !contexts[0].images.empty()) {
-            current_path = contexts[0].images[contexts[0].current_idx];
-        } else {
-            current_path = "(no file loaded)";
-        }
-        ImGui::TextUnformatted("Path:");
-        ImGui::SameLine();
-        ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextUnformatted(current_path.c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::EndChild();
+        if (!contexts.empty() && !contexts[0].images.empty())
+        {
+            const std::string& current_path =
+                contexts[0].images[contexts[0].current_idx];
 
-        ImGui::End(); 
+            float bar_h = 28.0f;
+
+            ImDrawList* draw = ImGui::GetForegroundDrawList();
+
+            ImVec2 p0 = ImGui::GetWindowPos();
+            ImVec2 p1(
+                p0.x + ImGui::GetWindowWidth(),
+                p0.y + bar_h
+            );
+
+            draw->AddRectFilled(
+                p0,
+                p1,
+                IM_COL32(0, 0, 0, 230)
+            );
+
+            draw->AddText(
+                ImVec2(p0.x + 10, p0.y + 6),
+                IM_COL32(0, 255, 120, 255),
+                current_path.c_str()
+            );
+        }
+
+        ImGui::End();
+
         ImGui::Render();
 
         int w, h;
         glfwGetFramebufferSize(window, &w, &h);
+
         glViewport(0, 0, w, h);
-        glClearColor(0.1f, 0.1f, 0.1f, 1);
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -909,11 +939,16 @@ int main(int argc, char** argv)
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-    
-    for(auto& c : contexts) {
-        if (c.texture) glDeleteTextures(1, &c.texture);
-        for(auto tex : c.polar_textures) if(tex) glDeleteTextures(1, &tex);
+
+    for (auto& c : contexts) {
+        if (c.texture)
+            glDeleteTextures(1, &c.texture);
+
+        for (auto tex : c.polar_textures)
+            if (tex)
+                glDeleteTextures(1, &tex);
     }
-    
+
+    glfwTerminate();
     return 0;
 }

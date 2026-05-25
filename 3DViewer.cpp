@@ -648,6 +648,12 @@ void Viewer3D::SetupBuffers() {
 
     glBindVertexArray(0);
 }
+// --- VARIABLES ESTÁTICAS DE ARCHIVO PARA INTERCONEXIÓN (LINK VIEWERS) ---
+static bool g_link_viewers = false;
+static float g_shared_target[3] = {0.0f, 0.0f, 0.0f};
+static float g_shared_radius = 5.0f;
+static float g_shared_azimuth = 0.785f;
+static float g_shared_polar = 1.2f;
 
 void Viewer3D::ResetCamera() {
     float dx = model_max[0] - model_min[0];
@@ -659,11 +665,36 @@ void Viewer3D::ResetCamera() {
     
     camera.azimuth = 0.785f; 
     camera.polar = 1.2f;     
+
+    // Si están vinculados, propaga el reset como estado maestro inicial
+    if (g_link_viewers) {
+        g_shared_target[0] = camera.target[0];
+        g_shared_target[1] = camera.target[1];
+        g_shared_target[2] = camera.target[2];
+        g_shared_radius = camera.radius;
+        g_shared_azimuth = camera.azimuth;
+        g_shared_polar = camera.polar;
+    }
 }
 
 void Viewer3D::UpdateCamera(ImVec2 size) {
     ImGuiIO& io = ImGui::GetIO();
     bool is_view_hovered = ImGui::IsItemHovered();
+
+    // Evaluar si esta ventana específica está recibiendo interacción activa del usuario
+    bool standard_interact = (camera.is_rotating || camera.is_panning);
+    bool wheel_interact = (is_view_hovered && io.MouseWheel != 0.0f);
+    bool is_actively_controlling = standard_interact || wheel_interact;
+
+    // Si Link Viewers está activo y nadie está tocando ESTA cámara, hereda el estado global
+    if (g_link_viewers && !is_actively_controlling) {
+        camera.target[0] = g_shared_target[0];
+        camera.target[1] = g_shared_target[1];
+        camera.target[2] = g_shared_target[2];
+        camera.radius = g_shared_radius;
+        camera.azimuth = g_shared_azimuth;
+        camera.polar = g_shared_polar;
+    }
 
     if (is_view_hovered) {
         if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
@@ -696,6 +727,16 @@ void Viewer3D::UpdateCamera(ImVec2 size) {
         camera.target[0] -= io.MouseDelta.x * factor * std::cos(camera.azimuth);
         camera.target[1] -= io.MouseDelta.x * factor * std::sin(camera.azimuth);
         camera.target[2] += io.MouseDelta.y * factor;
+    }
+
+    // Si ESTA cámara fue la que mutó por interacción, publica los datos para las demás
+    if (g_link_viewers && (is_actively_controlling || ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+        g_shared_target[0] = camera.target[0];
+        g_shared_target[1] = camera.target[1];
+        g_shared_target[2] = camera.target[2];
+        g_shared_radius = camera.radius;
+        g_shared_azimuth = camera.azimuth;
+        g_shared_polar = camera.polar;
     }
 }
 
@@ -776,11 +817,9 @@ void Viewer3D::RenderView(ImVec2 view_size) {
             glPointSize(2.0f);
             glDrawArrays(GL_POINTS, 0, (int)vertices.size());
         } else {
-            // rendering
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glDrawArrays(GL_TRIANGLES, 0, (int)vertices.size());
 
-            // draw wireframe
             if (show_wireframe) {
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
@@ -806,8 +845,37 @@ void Viewer3D::RenderView(ImVec2 view_size) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDisable(GL_DEPTH_TEST);
 
+    // Guardamos la posición base del render
+    ImVec2 overlay_anchor = ImGui::GetCursorScreenPos();
+
+    // Render de la textura del viewport
     ImGui::Image((void*)(intptr_t)texture_id, view_size, ImVec2(0, 1), ImVec2(1, 0));
+    
+    // Captura del Input de Cámara de forma inmediata
     UpdateCamera(view_size);
+
+    // --- HUD FLOTANTE SUPERIOR DENTRO DE CADA VIEWPORT ---
+    ImGui::SetCursorScreenPos(ImVec2(overlay_anchor.x + 10, overlay_anchor.y + 10));
+    
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.6f));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+    
+    // Checkbox nativo que muta la bandera estática compartida por todos los visores
+    if (ImGui::Checkbox("##LinkToggle", &g_link_viewers)) {
+        if (g_link_viewers) {
+            // Al activarse forzadamente, este visor inicializa el canal compartido
+            g_shared_target[0] = camera.target[0];
+            g_shared_target[1] = camera.target[1];
+            g_shared_target[2] = camera.target[2];
+            g_shared_radius = camera.radius;
+            g_shared_azimuth = camera.azimuth;
+            g_shared_polar = camera.polar;
+        }
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(g_link_viewers ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "LINK VIEWERS");
+    
+    ImGui::PopStyleColor(2);
 }
 
 void Viewer3D::RenderUI(const char* window_name, bool* p_open) {
