@@ -845,13 +845,10 @@ void Viewer3D::RenderView(ImVec2 view_size) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDisable(GL_DEPTH_TEST);
 
-    // Guardamos la posición base del render
     ImVec2 overlay_anchor = ImGui::GetCursorScreenPos();
 
-    // Render de la textura del viewport
     ImGui::Image((void*)(intptr_t)texture_id, view_size, ImVec2(0, 1), ImVec2(1, 0));
     
-    // Captura del Input de Cámara de forma inmediata
     UpdateCamera(view_size);
 
     // --- HUD FLOTANTE SUPERIOR DENTRO DE CADA VIEWPORT ---
