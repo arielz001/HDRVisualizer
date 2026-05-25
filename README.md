@@ -150,7 +150,7 @@ sudo make install
 
 ---
 
-## Usage
+## Usage (if you installed with sudo make install, else use ./build/bin/riv)
 
 Run **riv** by passing an image file or a directory containing images:
 
