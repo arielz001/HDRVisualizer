@@ -112,10 +112,13 @@ The application is fully compatible and tested under **Ubuntu 22.04 LTS** and **
 
 Ensure you have the C++ compilers and development packages for the required graphical libraries installed:
 
+
+
 ```bash
 sudo apt update
-sudo apt install build-essential cmake libopencv-dev libopenexr-dev libglfw3-dev libgl1-mesa-dev xorg-dev
+sudo apt install build-essential cmake libopencv-dev libopenexr-dev libglfw3-dev libgl1-mesa-dev xorg-dev 
 ```
+
 
 In MacOS, you may need install the following dependencies:
 
@@ -125,12 +128,29 @@ brew install cmake opencv openexr glfw
 
 Actually, the application is working in ubuntu 22.04 and macos m1. I'm not sure if it works in windows.
 
----
+
+(Optional) For Event-Based Camera Support only in ubuntu system (.aedat4 files): 
+
+**UBUNTU SYSTEMS**
+```bash
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+sudo add-apt-repository ppa:inivation-ppa/inivation
+sudo apt update
+sudo apt install dv-processing
+sudo apt install libeigen3-dev -y
+```
+Then, you may need to install clang18
+```bash
+curl -fsSL https://hexmos.com/ipm-install | bash && 
+ipm i clang-18
+```
+and you should press enter, enter and enter again to accept the installation.
+
 
 
 ## Build from source
-
 ```bash
+
 git clone https://github.com/arielz001/riv.git
 cd riv
 git submodule update --init --recursive
@@ -138,10 +158,17 @@ git submodule update --init --recursive
 mkdir build
 cd build
 
+```
+### if you are using dv processing and clang 18
+```bash
+CC=clang-18 CXX=clang++-18 cmake ..
+make
+```
+### if you are not using dv processing
+```bash
 cmake ..
 make
 ```
-
 ### Optional install (Linux)
 
 ```bash

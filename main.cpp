@@ -21,7 +21,13 @@
 #include "Colorspace.h"
 #include "Video.h" 
 
-
+#ifdef HAS_EVENTS
+#include "Events.h"
+#include <dv-processing/core/core.hpp>
+#endif
+// Variables globales de sincronización para los sliders de eventos
+int g_event_count_slider = 5000;
+int g_event_time_slider = 30000;
 // ============================================================================
 // 2. STRUCTURES AND GLOBAL STATE
 // ============================================================================
@@ -33,11 +39,12 @@ struct AppContext
     cv::Mat current_img_raw; 
     GLuint texture = 0;      
 
-    std::vector<cv::Mat> polar_raw_channels; 
-    std::vector<cv::Mat> polar_ldr_channels; 
-    std::vector<cv::Mat> polar_current_ldr;  
-    std::vector<cv::Mat> polar_current_raw;  
-    std::vector<GLuint> polar_textures;      
+    // C++20: Inicialización directa de tamaños para limpiar el constructor
+    std::vector<cv::Mat> polar_raw_channels = std::vector<cv::Mat>(6); 
+    std::vector<cv::Mat> polar_ldr_channels = std::vector<cv::Mat>(6); 
+    std::vector<cv::Mat> polar_current_ldr  = std::vector<cv::Mat>(6);  
+    std::vector<cv::Mat> polar_current_raw  = std::vector<cv::Mat>(6);  
+    std::vector<GLuint> polar_textures      = std::vector<GLuint>(6, 0);      
     std::vector<std::string> polar_names = {"0 deg", "45 deg", "AoLP", "90 deg", "135 deg", "DoLP"};
 
     std::vector<std::string> images;
@@ -45,7 +52,18 @@ struct AppContext
     bool is_3d_model = false;
     bool is_polarized = false; 
     bool is_video = false;
+    bool is_event_file = false;
+    
     VideoPlayer video;
+
+    // OPERADORES DE MOVIMIENTO: Siempre visibles para que std::vector no rompa la compilación
+    AppContext(AppContext&&) noexcept = default;
+    AppContext& operator=(AppContext&&) noexcept = default;
+
+#ifdef HAS_EVENTS
+    AedatReader event_reader;
+#endif
+
     std::shared_ptr<Viewer3D> model_viewer;
     bool needs_tonemap = false; 
     bool needs_texture = false; 
@@ -59,13 +77,8 @@ struct AppContext
     float d_gamma = 1.0f, d_saturation = 1.0f, d_bias = 0.85f;                     
     float m_gamma = 1.0f, m_scale = 0.7f, m_saturation = 1.0f;                     
 
-    AppContext() {
-        polar_raw_channels.resize(6);
-        polar_ldr_channels.resize(6);
-        polar_current_ldr.resize(6);
-        polar_current_raw.resize(6);
-        polar_textures.assign(6, 0);
-    }
+    // Constructor por defecto limpio gracias a las inicializaciones de arriba
+    AppContext() = default;
 
     void resetToFactoryDefaults() {
         r_gamma = 1.0f; intensity = 0.0f; light_adapt = 0.5f; color_adapt = 0.0f;
@@ -75,12 +88,17 @@ struct AppContext
         is_3d_model = false;
         is_polarized = false; 
         is_video = false;
+        is_event_file = false;
         video.release();
+
+#ifdef HAS_EVENTS
+        event_reader.Close();
+#endif
+
         model_viewer.reset();
         colorspace.reset();
     }
 };
-
 
 std::vector<AppContext> contexts;
 
@@ -316,12 +334,59 @@ void loadRawImage(AppContext& ctx, int i)
 // ============================================================================
 // 4. RENDERING SUB-ROUTINES (CONTROL PANEL & WORKSPACE)
 // ============================================================================
+
 void renderControlPanel(GLFWwindow* window)
 {
     if (contexts.empty()) return;
     
     AppContext& ref_ctx = contexts[0];
 
+    static int event_count_slider = 5000;
+    static int event_time_slider = 30000;
+
+    // ============================================================================
+    // camera events file viewer (Solo por Ventana de Tiempo)
+    // ============================================================================
+    if (ref_ctx.is_event_file) {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "ACUMULADOR DE EVENTOS (.aedat4)");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        for (auto& c : contexts) {
+            c.mode = 1; 
+        }
+
+        bool slider_changed = false; 
+
+        if (ImGui::SliderInt("Tie (us)", &g_event_time_slider, 100, 100000, "%d us")) {
+            slider_changed = true;
+        }
+        ImGui::TextDisabled("Temporal Window: Accumulates real microseconds.");
+
+        if (slider_changed) {
+            for (auto& c : contexts) {
+                c.needs_tonemap = true;
+                c.needs_texture = true;
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        if (ImGui::Button("Reset Zoom") || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
+            for(auto& c : contexts) {
+                c.zoom_state.Reset(c.base_img_raw.cols, c.base_img_raw.rows);
+                updateViewportImage(c);
+            }
+            g_sync.has_persistent_rect = false; 
+        }
+        
+        return; 
+    }
+
+    // ============================================================================
+    // CASO 2: VISOR DE MODELOS 3D
+    // ============================================================================
     if (ref_ctx.is_3d_model) {
         ImGui::Text("3D Model Viewer");
         if (ref_ctx.model_viewer && ImGui::Button("Reset Camera")) {
@@ -334,6 +399,9 @@ void renderControlPanel(GLFWwindow* window)
         return;
     }
 
+    // ============================================================================
+    // CASO 3: INTERFAZ ESTÁNDAR (IMÁGENES, VIDEOS, RASTER, TONEMAPPING)
+    // ============================================================================
     ImGui::Text("Tonemapping");
     if (ImGui::Button("Reinhard")) { for(auto& c : contexts) { c.mode = 1; c.needs_tonemap = true; } } ImGui::SameLine();
     if (ImGui::Button("Drago"))    { for(auto& c : contexts) { c.mode = 2; c.needs_tonemap = true; } } ImGui::SameLine();
@@ -389,7 +457,6 @@ void renderControlPanel(GLFWwindow* window)
         ImGui::Separator();
     }
 
-
     if (ImGui::Button("Reset Zoom") || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
         for(auto& c : contexts) {
             int w = c.is_polarized ? c.polar_raw_channels[0].cols : c.base_img_raw.cols;
@@ -411,7 +478,6 @@ void renderControlPanel(GLFWwindow* window)
         }
     }
 }
-
 
 void drawSingleViewport(int context_idx, AppContext& ctx, ImVec2 size, int viewport_id, cv::Mat& current_raw, cv::Mat& base_raw, cv::Mat& current_ldr, cv::Mat& base_ldr, GLuint texture_id)
 {
@@ -766,6 +832,261 @@ void renderViewportAndInteractions()
 // ============================================================================
 // 5. MAIN ENTRY POINT
 // ============================================================================
+void updateContextType(AppContext& c, const std::string& file_path) 
+{
+#ifdef HAS_EVENTS
+    if (c.is_event_file) {
+        c.event_reader.Close();
+    }
+#endif
+    c.is_event_file = false;
+    c.is_video = false;
+    c.is_3d_model = false;
+
+    std::string ext = std::filesystem::path(file_path).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext == ".aedat" || ext == ".aedat4") {
+#ifdef HAS_EVENTS
+        c.is_event_file = true;
+        c.event_reader.Open(file_path);
+        c.mode = 1;
+#else
+        std::cout << "[WARNING] Soporte de eventos deshabilitado para: " << file_path << "\n";
+#endif
+    }
+    else if (ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov") {
+        c.is_video = true;
+    }
+    else if (ext == ".obj" || ext == ".ply" || ext == ".pcd") {
+        c.is_3d_model = true;
+        if (!c.model_viewer) {
+            using UnderlyingType = std::remove_reference_t<decltype(*c.model_viewer)>;
+            c.model_viewer = std::make_unique<UnderlyingType>();
+        }
+    }
+}
+
+void processInputArguments(int argc, char** argv, AppContext& ctx) 
+{
+    for (int i = 1; i < argc; ++i) {
+        std::string input = argv[i];
+        if (std::filesystem::is_directory(input)) {
+            std::vector<std::string> dir_files = getImages(input);
+            ctx.images.insert(ctx.images.end(), dir_files.begin(), dir_files.end());
+        } else {
+            ctx.images.push_back(input);
+        }
+    }
+}
+
+GLFWwindow* initGraphicsWindow(int width, int height, const char* title) 
+{
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#endif
+
+    GLFWwindow* window = glfwCreateWindow(width, height, title, NULL, NULL);
+    if (!window) return nullptr;
+
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+    return window;
+}
+
+void initImGui(GLFWwindow* window) 
+{
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 150");
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+}
+
+void loadInitialContextData() 
+{
+    for (auto& c : contexts) {
+        if (!c.is_event_file && !c.is_3d_model) {
+            loadRawImage(c, 0);
+            updateTexture(c);
+        } 
+#ifdef HAS_EVENTS
+        else if (c.is_event_file && c.event_reader.IsOpen()) {
+            cv::Mat first_ev_frame;
+            if (c.event_reader.ReadNextFrame(first_ev_frame, 1, g_event_time_slider)) {
+                first_ev_frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
+                c.needs_tonemap = true;
+                c.needs_texture = true;
+            }
+        }
+#endif
+        if (c.is_3d_model && c.model_viewer) {
+            c.model_viewer->LoadModel(c.images[0]);
+        }
+    }
+}
+
+// ============================================================================
+// PROCESAMIENTO CONTINUO DE CONTENIDOS (FRAME A FRAME)
+// ============================================================================
+
+void processContinuousMedia() 
+{
+    for (auto& c : contexts) {
+        if (c.is_video) {
+            cv::Mat frame;
+            if (c.video.getNextFrame(frame)) {
+                frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
+                c.needs_tonemap = true;
+            }
+        } 
+#ifdef HAS_EVENTS
+        else if (c.is_event_file && c.event_reader.IsOpen()) {
+            cv::Mat ev_frame;
+            if (!c.event_reader.ReadNextFrame(ev_frame, 1, g_event_time_slider)) {
+                c.event_reader.Close();
+                c.event_reader.Open(c.images[c.current_idx]);
+                if (c.event_reader.ReadNextFrame(ev_frame, 1, g_event_time_slider)) {
+                    ev_frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
+                    c.needs_tonemap = true;
+                    c.needs_texture = true;
+                }
+            } else {
+                ev_frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
+                c.needs_tonemap = true;
+                c.needs_texture = true; 
+            }
+        }
+#endif
+    }
+}
+
+// ============================================================================
+// MANEJO DE ENTRADAS DEL USUARIO (TECLADO / INTERFAZ)
+// ============================================================================
+
+void handleKeyboardInputs(GLFWwindow* window) 
+{
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    if (ImGui::IsKeyPressed(ImGuiKey_A, false)) {
+        for (auto& c : contexts) {
+            c.resetToFactoryDefaults();
+            if (!c.is_event_file && !c.is_3d_model) {
+                loadRawImage(c, c.current_idx);
+            }
+            if (c.is_3d_model && c.model_viewer) {
+                c.model_viewer->ResetCamera();
+            }
+        }
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+        for (auto& c : contexts) {
+            if (c.is_3d_model || c.is_event_file) continue;
+            c.colorspace.cycle();
+            updateGlobalTonemapCache(c);
+            updateViewportImage(c);
+        }
+    }
+
+    auto navigationCallback = [](int new_idx) {
+        for (auto& c : contexts) {
+            c.current_idx = new_idx;
+            updateContextType(c, c.images[new_idx]);
+            
+            if (!c.is_event_file && !c.is_3d_model) {
+                loadRawImage(c, new_idx);
+            }
+            else if (c.is_3d_model && c.model_viewer) {
+                c.model_viewer->LoadModel(c.images[new_idx]);
+                c.model_viewer->ResetCamera();
+            }
+#ifdef HAS_EVENTS
+            else if (c.is_event_file && c.event_reader.IsOpen()) {
+                cv::Mat first_ev_frame;
+                if (c.event_reader.ReadNextFrame(first_ev_frame, 1, g_event_time_slider)) {
+                    first_ev_frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
+                    c.needs_tonemap = true;
+                    c.needs_texture = true;
+                }
+            }
+#endif
+        }
+    };
+
+    if (!contexts.empty()) {
+        HandleKeyboardNavigation(
+            contexts[0].current_idx,
+            contexts[0].images.size(),
+            navigationCallback
+        );
+    }
+}
+
+void renderImGuiInterface(GLFWwindow* window) 
+{
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+
+    ImGui::Begin(
+        "HDR Viewer",
+        nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+    );
+
+    renderControlPanel(window);
+    ImGui::Separator();
+
+    for (auto& c : contexts) {
+        if (c.needs_texture) {
+            updateTexture(c);
+            c.needs_texture = false;
+        }
+    }
+
+    renderViewportAndInteractions();
+
+    if (!contexts.empty() && !contexts[0].images.empty()) {
+        const std::string& current_path = contexts[0].images[contexts[0].current_idx];
+        float bar_h = 28.0f;
+
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        ImVec2 p0 = ImGui::GetWindowPos();
+        ImVec2 p1(p0.x + ImGui::GetWindowWidth(), p0.y + bar_h);
+
+        draw->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 230));
+        draw->AddText(ImVec2(p0.x + 10, p0.y + 6), IM_COL32(0, 255, 120, 255), current_path.c_str());
+    }
+
+    ImGui::End();
+}
+
+void cleanupResources() 
+{
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
+    for (auto& c : contexts) {
+        if (c.texture) glDeleteTextures(1, &c.texture);
+        for (auto tex : c.polar_textures) {
+            if (tex) glDeleteTextures(1, &tex);
+        }
+#ifdef HAS_EVENTS
+        if (c.is_event_file) c.event_reader.Close();
+#endif
+    }
+    glfwTerminate();
+}
+
+// ============================================================================
+// 5. MAIN ENTRY POINT
+// ============================================================================
 int main(int argc, char** argv)
 {
     if (!glfwInit()) return -1;
@@ -775,159 +1096,40 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    for (int i = 1; i < argc; ++i) {
-        std::string input = argv[i];
-        AppContext ctx;
+    AppContext ctx;
+    processInputArguments(argc, argv, ctx);
 
-        if (std::filesystem::is_directory(input))
-            ctx.images = getImages(input);
-        else
-            ctx.images.push_back(input);
+    if (ctx.images.empty()) return -1;
+    ctx.current_idx = 0;
 
-        contexts.push_back(ctx);
-    }
+    updateContextType(ctx, ctx.images[ctx.current_idx]);
+    contexts.push_back(std::move(ctx));
 
-    if (contexts.empty()) return -1;
-
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Research Image Viewer", NULL, NULL);
+    GLFWwindow* window = initGraphicsWindow(1280, 720, "Research Image Viewer");
     if (!window) {
         glfwTerminate();
         return -1;
     }
 
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 150");
-
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-    for (int i = 0; i < contexts.size(); ++i) {
-        loadRawImage(contexts[i], 0);
-        updateTexture(contexts[i]);
-
-        if (i > 0)
-            contexts[i].zoom_state.current_roi = contexts[0].zoom_state.current_roi;
-    }
+    initImGui(window);
+    loadInitialContextData();
 
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
 
-        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
-
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (ImGui::IsKeyPressed(ImGuiKey_A, false)) {
-            for (auto& c : contexts) {
-                c.resetToFactoryDefaults();
-                loadRawImage(c, c.current_idx);
-            }
-        }
-
-        if (ImGui::IsKeyPressed(ImGuiKey_S)) {
-            for (auto& c : contexts) {
-                if (c.is_3d_model) continue;
-                c.colorspace.cycle();
-                updateGlobalTonemapCache(c);
-                updateViewportImage(c);
-            }
-        }
-
-        auto navigationCallback = [&](int new_idx) {
-            for (auto& c : contexts)
-                loadRawImage(c, new_idx);
-        };
-
-        if (!contexts.empty())
-            HandleKeyboardNavigation(
-                contexts[0].current_idx,
-                contexts[0].images.size(),
-                navigationCallback
-            );
-
-        for (auto& c : contexts) {
-            if (c.is_video) {
-                cv::Mat frame;
-                if (c.video.getNextFrame(frame)) {
-                    frame.convertTo(c.base_img_raw, CV_32FC3, 1.0 / 255.0);
-                    c.needs_tonemap = true;
-                }
-            }
-        }
-
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-
-        ImGui::Begin(
-            "HDR Viewer",
-            nullptr,
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove
-        );
-
-        renderControlPanel(window);
-        ImGui::Separator();
-
-        for (auto& c : contexts) {
-            if (c.needs_texture) {
-                updateTexture(c);
-                c.needs_texture = false;
-            }
-        }
-
-        renderViewportAndInteractions();
-
-        if (!contexts.empty() && !contexts[0].images.empty())
-        {
-            const std::string& current_path =
-                contexts[0].images[contexts[0].current_idx];
-
-            float bar_h = 28.0f;
-
-            ImDrawList* draw = ImGui::GetForegroundDrawList();
-
-            ImVec2 p0 = ImGui::GetWindowPos();
-            ImVec2 p1(
-                p0.x + ImGui::GetWindowWidth(),
-                p0.y + bar_h
-            );
-
-            draw->AddRectFilled(
-                p0,
-                p1,
-                IM_COL32(0, 0, 0, 230)
-            );
-
-            draw->AddText(
-                ImVec2(p0.x + 10, p0.y + 6),
-                IM_COL32(0, 255, 120, 255),
-                current_path.c_str()
-            );
-        }
-
-        ImGui::End();
+        handleKeyboardInputs(window);
+        processContinuousMedia();
+        renderImGuiInterface(window);
 
         ImGui::Render();
 
         int w, h;
         glfwGetFramebufferSize(window, &w, &h);
-
         glViewport(0, 0, w, h);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -936,19 +1138,6 @@ int main(int argc, char** argv)
         glfwSwapBuffers(window);
     }
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-
-    for (auto& c : contexts) {
-        if (c.texture)
-            glDeleteTextures(1, &c.texture);
-
-        for (auto tex : c.polar_textures)
-            if (tex)
-                glDeleteTextures(1, &tex);
-    }
-
-    glfwTerminate();
+    cleanupResources();
     return 0;
 }

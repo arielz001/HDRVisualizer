@@ -1,13 +1,48 @@
 cmake_minimum_required(VERSION 3.5)
 project(riv)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find required packages
 find_package(OpenCV REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
+
+# ============================================================================
+# FILTER TO PREVENT dv-processing CMAKE CRASH ON OLD COMPILERS
+# ============================================================================
+set(ENABLE_EVENTS_SUPPORT ON)
+
+# If using GCC and version is below 13.0, disable to prevent fatal error inside its config
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
+    message(STATUS "GCC version is below 13.0 (${CMAKE_CXX_COMPILER_VERSION}). Disabling dv-processing to prevent CMake crash.")
+    set(ENABLE_EVENTS_SUPPORT OFF)
+endif()
+
+# If using Clang and version is below 18.0, disable to prevent fatal error inside its config
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "18.0")
+    message(STATUS "Clang version is below 18.0 (${CMAKE_CXX_COMPILER_VERSION}). Disabling dv-processing to prevent CMake crash.")
+    set(ENABLE_EVENTS_SUPPORT OFF)
+endif()
+
+# Only search for the package if the current compiler meets the requirements
+if(ENABLE_EVENTS_SUPPORT)
+    find_package(dv-processing QUIET)
+endif()
+
+# SOLUCIÓN: Eigen3 se busca ÚNICAMENTE si se encontró dv-processing
+if(dv-processing_FOUND)
+    message(STATUS "dv-processing found - Event camera support enabled")
+    add_definitions(-DHAS_EVENTS)
+    
+    find_package(Eigen3 REQUIRED QUIET)
+    if(Eigen3_FOUND)
+        message(STATUS "Eigen3 found and linked for dv-processing internal dependencies")
+    endif()
+else()
+    message(STATUS "Compiling WITHOUT event camera support (.aedat4)")
+endif()
 
 # Optional: OpenEXR for HDR image support
 find_package(OpenEXR QUIET)
@@ -25,7 +60,7 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 # ImGui
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 
-# Source files
+# Base Source files (always compiled)
 set(SOURCES
     main.cpp
     3DViewer.cpp
@@ -45,6 +80,14 @@ set(SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
+# Append Events source code ONLY if dv-processing was successfully found
+if(dv-processing_FOUND)
+    list(APPEND SOURCES Events.cpp)
+endif()
+
+# ============================================================================
+# CREACIÓN DEL EJECUTABLE
+# ============================================================================
 add_executable(riv ${SOURCES})
 
 target_include_directories(riv PRIVATE
@@ -52,14 +95,32 @@ target_include_directories(riv PRIVATE
     ${IMGUI_DIR}/backends
 )
 
-# Link libraries
+# Link base libraries (Estilo Plain)
 target_link_libraries(riv
     ${OpenCV_LIBS}
     OpenGL::GL
     glfw
 )
 
-# Link OpenEXR if found
+# Link optional dv-processing and dependencies ONLY if event support is active
+if(dv-processing_FOUND)
+    target_link_libraries(riv ${dv-processing_LIBRARIES})
+    target_include_directories(riv PRIVATE ${dv-processing_INCLUDE_DIRS})
+    
+    # SOLUCIÓN COMPLETA AL LINKER: Forzar la inclusión de ZSTD, LZ4 y FMT requeridos por dv-processing
+    target_link_libraries(riv "-lzstd")
+    target_link_libraries(riv "-llz4")
+    target_link_libraries(riv "-lfmt")
+    
+    # Esto inyecta dinámicamente '/usr/include/eigen3'
+    if(TARGET Eigen3::Eigen)
+        target_link_libraries(riv Eigen3::Eigen)
+    else()
+        target_include_directories(riv PRIVATE ${EIGEN3_INCLUDE_DIR})
+    endif()
+endif()
+
+# Link OpenEXR if found (Estilo Plain)
 if(OpenEXR_FOUND)
     target_link_libraries(riv ${OPENEXR_LIBRARIES})
     target_include_directories(riv PRIVATE ${OPENEXR_INCLUDE_DIRS})
@@ -115,7 +176,6 @@ elseif(APPLE)
         COMMAND touch ${CMAKE_BINARY_DIR}/bin/riv.app
         COMMAND /usr/bin/xattr -c ${CMAKE_BINARY_DIR}/bin/riv.app 2>/dev/null || true
     )
-    # EL SYMLINK AHORA VIVE SOLO EN MACOS
     add_custom_command(TARGET riv POST_BUILD 
         COMMAND ${CMAKE_COMMAND} -E create_symlink riv.app/Contents/MacOS/riv ${CMAKE_BINARY_DIR}/bin/riv
     )
