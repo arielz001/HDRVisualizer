@@ -867,17 +867,25 @@ void updateContextType(AppContext& c, const std::string& file_path)
     }
 }
 
-void processInputArguments(int argc, char** argv, AppContext& ctx) 
+std::vector<AppContext> processInputArguments(int argc, char** argv)
 {
+    std::vector<AppContext> out;
     for (int i = 1; i < argc; ++i) {
         std::string input = argv[i];
         if (std::filesystem::is_directory(input)) {
             std::vector<std::string> dir_files = getImages(input);
-            ctx.images.insert(ctx.images.end(), dir_files.begin(), dir_files.end());
+            for (auto &f : dir_files) {
+                AppContext c;
+                c.images.push_back(f);
+                out.push_back(std::move(c));
+            }
         } else {
-            ctx.images.push_back(input);
+            AppContext c;
+            c.images.push_back(input);
+            out.push_back(std::move(c));
         }
     }
+    return out;
 }
 
 GLFWwindow* initGraphicsWindow(int width, int height, const char* title) 
@@ -1096,14 +1104,17 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    AppContext ctx;
-    processInputArguments(argc, argv, ctx);
+    auto new_contexts = processInputArguments(argc, argv);
+    if (new_contexts.empty()) return -1;
 
-    if (ctx.images.empty()) return -1;
-    ctx.current_idx = 0;
-
-    updateContextType(ctx, ctx.images[ctx.current_idx]);
-    contexts.push_back(std::move(ctx));
+    for (auto &c : new_contexts) {
+        AppContext ctx = std::move(c);
+        ctx.current_idx = 0;
+        if (!ctx.images.empty()) {
+            updateContextType(ctx, ctx.images[ctx.current_idx]);
+        }
+        contexts.push_back(std::move(ctx));
+    }
 
     GLFWwindow* window = initGraphicsWindow(1280, 720, "Research Image Viewer");
     if (!window) {
